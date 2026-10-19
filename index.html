@@ -1,0 +1,674 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Drone Dodger</title>
+<style>
+  :root {
+    --bg: #05070f;
+    --panel: rgba(8, 12, 28, 0.93);
+    --text: #e8ecff;
+    --muted: #9aa4c7;
+    --accent: #4fd1ff;
+    --good: #7cf29c;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+  }
+  .wrap {
+    position: relative;
+    /* tall play area that fits the window on laptops and phones */
+    width: min(100%, calc((100vh - 32px) * 2 / 3));
+    width: min(100%, calc((100dvh - 32px) * 2 / 3));
+    aspect-ratio: 2 / 3;
+  }
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border-radius: 12px;
+    border: 1px solid #1d2647;
+    touch-action: none;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  .menu {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 14px;
+  }
+  .menu[hidden] { display: none; }
+  .card {
+    background: var(--panel);
+    border: 1px solid #263063;
+    border-radius: 14px;
+    padding: 22px 20px;
+    text-align: center;
+    width: 100%;
+    max-width: 360px;
+  }
+  h1 { margin: 0 0 8px; font-size: clamp(24px, 6vw, 32px); letter-spacing: 1px; }
+  .how { margin: 0 0 14px; color: var(--muted); font-size: 14px; line-height: 1.5; }
+  .how strong { color: var(--text); }
+  .scores { display: flex; justify-content: center; gap: 28px; margin: 0 0 8px; }
+  .scores div { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+  .scores strong { display: block; font-size: 28px; color: var(--text); letter-spacing: 0; }
+  .newtop { color: var(--good); font-weight: 700; margin: 0 0 10px; min-height: 1.3em; }
+  button {
+    font: inherit;
+    font-size: 18px;
+    font-weight: 700;
+    color: #031018;
+    background: var(--accent);
+    border: none;
+    border-radius: 999px;
+    padding: 12px 34px;
+    cursor: pointer;
+  }
+  button:hover { filter: brightness(1.1); }
+  button:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <canvas id="game" width="480" height="720" aria-label="Drone Dodger game area"></canvas>
+  <div class="menu" id="menu">
+    <div class="card">
+      <h1>Drone Dodger</h1>
+      <p class="how">Drones, planes, missiles… and shoes are falling.<br>
+        Hold <strong>←</strong> or <strong>→</strong> to steer. On a phone, hold the left or right side.<br>
+        You can survive one hit. The second one ends the round.</p>
+      <div class="scores">
+        <div>Last score<strong id="lastScore">0</strong></div>
+        <div>Top score<strong id="topScore">0</strong></div>
+      </div>
+      <p class="newtop" id="newTop" aria-live="polite"></p>
+      <button id="newGame" type="button">New game</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  // ---------- Game settings (change these to tune the game) ----------
+  const SETTINGS = {
+    shipSpeed: 300,         // sideways speed while a key is held (pixels per second)
+    startSpeed: 170,        // how fast objects fall at the start (pixels per second)
+    speedUpEvery: 10,       // points between speed-ups
+    speedUpFactor: 1.10,    // +10% each time
+    maxSpeed: 340,          // falling speed never goes above this
+    waveSpacing: 250,       // vertical distance between waves
+    lanes: 6,               // the screen is split into this many lanes
+    fillChance: 0.85,       // chance each lane outside the escape route gets an object
+    maxSafeShift: 2,        // the open lane moves at most this many lanes between waves
+    hull: 2,                // hits you can take (the last one ends the round)
+    safeTime: 1.5,          // seconds of no damage after the first hit
+    destroyedPause: 1.0,
+    fasterMessageTime: 1.0
+  };
+
+  const W = 480, H = 720;
+  const LANE = W / SETTINGS.lanes;
+  const SHIP = { w: 40, h: 68, y: H - 100 };
+  const STORE_LAST = "droneDodger.lastScore";
+  const STORE_TOP = "droneDodger.topScore";
+
+  // Object types: size of the drawing and of the (slightly smaller) hit box
+  const TYPES = {
+    drone:   { w: 46, h: 46, hitW: 38, hitH: 38 },
+    plane:   { w: 140, h: 76, hitW: 124, hitH: 40 },   // takes two lanes
+    missile: { w: 20, h: 70, hitW: 14, hitH: 62 },
+    shoe:    { w: 50, h: 50, hitW: 34, hitH: 34 }
+  };
+
+  const canvas = document.getElementById("game");
+  const ctx = canvas.getContext("2d");
+  const menu = document.getElementById("menu");
+  const newGameBtn = document.getElementById("newGame");
+  const lastEl = document.getElementById("lastScore");
+  const topEl = document.getElementById("topScore");
+  const newTopEl = document.getElementById("newTop");
+
+  // ---------- Saved scores (safe if storage is blocked) ----------
+  function loadNumber(key) {
+    try { return Math.max(0, parseInt(localStorage.getItem(key), 10) || 0); }
+    catch (e) { return 0; }
+  }
+  function saveNumber(key, value) {
+    try { localStorage.setItem(key, String(value)); } catch (e) { /* keep playing */ }
+  }
+  let lastScore = loadNumber(STORE_LAST);
+  let topScore = loadNumber(STORE_TOP);
+
+  // ---------- Repeatable randomness (add ?seed=123 to the URL to test) ----------
+  function makeRandom(seed) {
+    let a = seed >>> 0;
+    return () => {
+      a = (a + 0x6D2B79F5) >>> 0;
+      let t = a;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  const seedParam = new URLSearchParams(location.search).get("seed");
+  let random = makeRandom(seedParam ? Number(seedParam) : Date.now());
+
+  const starRandom = makeRandom(7);
+  const stars = Array.from({ length: 80 }, () => ({
+    x: starRandom() * W, y: starRandom() * H,
+    r: starRandom() * 1.4 + 0.3, depth: starRandom() * 0.6 + 0.2
+  }));
+
+  // ---------- Game state ----------
+  let state = "menu";            // menu | playing | paused | destroyed
+  let menuOpenedAt = 0;
+  let g = null;
+
+  function newRound() {
+    if (seedParam) random = makeRandom(Number(seedParam));
+    return {
+      x: W / 2 - SHIP.w / 2,
+      score: 0,
+      hull: SETTINGS.hull,
+      speed: SETTINGS.startSpeed,
+      waves: [],
+      objects: [],
+      distanceToNext: 120,         // short calm moment before the first wave
+      safeLane: Math.floor(SETTINGS.lanes / 2),
+      safeTimer: 0,
+      fasterTimer: 0,
+      destroyedTimer: 0,
+      time: 0
+    };
+  }
+
+  // ---------- Building a wave that always has a way out ----------
+  function makeWave() {
+    const n = SETTINGS.lanes;
+    // The open lane stays within reach of the previous one
+    const shift = Math.floor(random() * (SETTINGS.maxSafeShift * 2 + 1)) - SETTINGS.maxSafeShift;
+    const prev = g.safeLane;
+    const safe = Math.max(0, Math.min(n - 1, prev + shift));
+    g.safeLane = safe;
+
+    // Keep the open lane AND the route to it from the last opening clear,
+    // so the ship can always slide across in time, even at top speed.
+    const taken = new Array(n).fill(false);
+    for (let l = Math.min(prev, safe); l <= Math.max(prev, safe); l++) taken[l] = true;
+    const wave = { y: -40, passed: false, safeLane: safe, objects: [] };
+    const baseY = -60;
+
+    for (let lane = 0; lane < n; lane++) {
+      if (taken[lane]) continue;
+      if (random() > SETTINGS.fillChance) continue;
+
+      // A plane needs two free neighbouring lanes
+      if (lane + 1 < n && !taken[lane + 1] && random() < 0.22) {
+        taken[lane] = taken[lane + 1] = true;
+        addObject(wave, "plane", (lane + 1) * LANE, baseY);
+        continue;
+      }
+      taken[lane] = true;
+      const roll = random();
+      const type = roll < 0.45 ? "drone" : roll < 0.8 ? "missile" : "shoe";
+      const cx = lane * LANE + LANE / 2 + (random() - 0.5) * (LANE - TYPES[type].w) * 0.8;
+      addObject(wave, type, cx, baseY + (random() - 0.5) * 40);
+    }
+    // Make sure every wave has at least one object
+    if (wave.objects.length === 0) {
+      const lane = taken.indexOf(false);
+      if (lane >= 0) addObject(wave, "drone", lane * LANE + LANE / 2, baseY);
+    }
+    g.waves.push(wave);
+  }
+
+  function addObject(wave, type, cx, cy) {
+    const o = { type, cx, cy, spin: random() * Math.PI * 2, wave };
+    wave.objects.push(o);
+    g.objects.push(o);
+  }
+
+  // ---------- Menu / round flow ----------
+  function showMenu(newTop) {
+    state = "menu";
+    menuOpenedAt = performance.now();
+    lastEl.textContent = lastScore;
+    topEl.textContent = topScore;
+    newTopEl.textContent = newTop ? "New top score!" : "";
+    menu.hidden = false;
+    newGameBtn.focus({ preventScroll: true });
+  }
+
+  const input = { left: false, right: false, touch: 0 };   // touch: -1 left, 1 right
+  function clearInput() { input.left = false; input.right = false; input.touch = 0; }
+
+  function startGame() {
+    g = newRound();
+    clearInput();
+    menu.hidden = true;
+    state = "playing";
+    canvas.focus({ preventScroll: true });
+  }
+
+  function pause() {
+    clearInput();
+    if (state === "playing") state = "paused";
+  }
+
+  function endRound() {
+    state = "destroyed";
+    g.destroyedTimer = SETTINGS.destroyedPause;
+  }
+
+  function finishRound() {
+    lastScore = g.score;
+    const beat = g.score > topScore;
+    if (beat) topScore = g.score;
+    saveNumber(STORE_LAST, lastScore);
+    saveNumber(STORE_TOP, topScore);
+    showMenu(beat);
+  }
+
+  // ---------- Rules: one fixed step of the simulation ----------
+  function step(dt) {
+    if (state === "destroyed") {
+      g.destroyedTimer -= dt;
+      if (g.destroyedTimer <= 0) finishRound();
+      return;
+    }
+    if (state !== "playing") return;
+
+    g.time += dt;
+    if (g.safeTimer > 0) g.safeTimer = Math.max(0, g.safeTimer - dt);
+    if (g.fasterTimer > 0) g.fasterTimer = Math.max(0, g.fasterTimer - dt);
+
+    // Ship: moves sideways only while held; edges stop it
+    let dir = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+    if (dir === 0) dir = input.touch;
+    g.x = Math.max(0, Math.min(W - SHIP.w, g.x + dir * SETTINGS.shipSpeed * dt));
+
+    // Falling objects
+    const move = g.speed * dt;
+    g.distanceToNext -= move;
+    if (g.distanceToNext <= 0) {
+      makeWave();
+      g.distanceToNext += SETTINGS.waveSpacing;
+    }
+    for (const o of g.objects) {
+      o.cy += move;
+      if (o.type === "shoe") o.spin += dt * 5;
+      if (o.type === "drone") o.spin += dt * 30;
+    }
+    for (const w of g.waves) w.y += move;
+    g.objects = g.objects.filter(o => o.cy - 80 < H);
+    g.waves = g.waves.filter(w => w.y - 100 < H);
+
+    // Hits (hit boxes are a little smaller than the drawings, to feel fair)
+    const sx = g.x + 6, sy = SHIP.y + 6, sw = SHIP.w - 12, sh = SHIP.h - 12;
+    if (g.safeTimer === 0) {
+      for (const o of g.objects) {
+        const t = TYPES[o.type];
+        const ox = o.cx - t.hitW / 2, oy = o.cy - t.hitH / 2;
+        if (sx < ox + t.hitW && sx + sw > ox && sy < oy + t.hitH && sy + sh > oy) {
+          g.hull -= 1;
+          if (g.hull <= 0) { endRound(); return; }
+          g.safeTimer = SETTINGS.safeTime;
+          break;
+        }
+      }
+    }
+
+    // Score: +1 when a whole wave is below the ship
+    for (const w of g.waves) {
+      if (w.passed) continue;
+      const lowestTop = Math.min(...w.objects.map(o => o.cy - TYPES[o.type].h / 2));
+      if (lowestTop > SHIP.y + SHIP.h) {
+        w.passed = true;
+        g.score += 1;
+        if (g.score % SETTINGS.speedUpEvery === 0) {
+          const level = g.score / SETTINGS.speedUpEvery;
+          const newSpeed = Math.min(SETTINGS.startSpeed * Math.pow(SETTINGS.speedUpFactor, level), SETTINGS.maxSpeed);
+          if (newSpeed > g.speed) { g.speed = newSpeed; g.fasterTimer = SETTINGS.fasterMessageTime; }
+        }
+      }
+    }
+  }
+
+  // ---------- Drawing ----------
+  function drawStars(t) {
+    ctx.fillStyle = "#05070f";
+    ctx.fillRect(0, 0, W, H);
+    for (const s of stars) {
+      const y = (s.y + t * 30 * s.depth) % H;
+      ctx.globalAlpha = 0.35 + s.depth;
+      ctx.fillStyle = "#cfd8ff";
+      ctx.beginPath();
+      ctx.arc(s.x, y, s.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // Destroyer seen from above, pointing up
+  function drawDestroyer(x, y, flashing, t) {
+    if (flashing && Math.floor(t * 10) % 2 === 0) ctx.globalAlpha = 0.3;
+    const w = SHIP.w, h = SHIP.h, cx = x + w / 2;
+    // engine flames
+    ctx.fillStyle = "#ff9d3c";
+    for (const dx of [-9, 9]) {
+      ctx.beginPath();
+      ctx.moveTo(cx + dx - 4, y + h - 4);
+      ctx.lineTo(cx + dx, y + h + 8 + Math.random() * 8);
+      ctx.lineTo(cx + dx + 4, y + h - 4);
+      ctx.fill();
+    }
+    // hull
+    ctx.fillStyle = "#a9b6d6";
+    ctx.beginPath();
+    ctx.moveTo(cx, y);
+    ctx.lineTo(x + w * 0.85, y + h * 0.3);
+    ctx.lineTo(x + w, y + h * 0.75);
+    ctx.lineTo(x + w * 0.75, y + h);
+    ctx.lineTo(x + w * 0.25, y + h);
+    ctx.lineTo(x, y + h * 0.75);
+    ctx.lineTo(x + w * 0.15, y + h * 0.3);
+    ctx.closePath();
+    ctx.fill();
+    // deck details
+    ctx.fillStyle = "#6f7ea6";
+    ctx.fillRect(cx - 7, y + h * 0.45, 14, 18);
+    ctx.fillRect(cx - 1.5, y + h * 0.18, 3, 14);      // forward gun
+    ctx.fillStyle = "#4fd1ff";
+    ctx.fillRect(cx - 4, y + h * 0.5, 8, 4);
+    ctx.globalAlpha = 1;
+  }
+
+  function drawDrone(o) {
+    const { cx, cy } = o;
+    ctx.strokeStyle = "#7a3550";
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(cx - 16, cy - 16); ctx.lineTo(cx + 16, cy + 16);
+    ctx.moveTo(cx + 16, cy - 16); ctx.lineTo(cx - 16, cy + 16);
+    ctx.stroke();
+    for (const [dx, dy] of [[-16, -16], [16, -16], [-16, 16], [16, 16]]) {
+      ctx.fillStyle = "rgba(200,210,235,0.35)";
+      ctx.beginPath(); ctx.arc(cx + dx, cy + dy, 8, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = "#dfe5f5"; ctx.lineWidth = 2;
+      const a = o.spin;
+      ctx.beginPath();
+      ctx.moveTo(cx + dx - Math.cos(a) * 8, cy + dy - Math.sin(a) * 8);
+      ctx.lineTo(cx + dx + Math.cos(a) * 8, cy + dy + Math.sin(a) * 8);
+      ctx.stroke();
+    }
+    ctx.fillStyle = "#5b2a3d";
+    ctx.beginPath(); ctx.arc(cx, cy, 10, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#ff4d6d";
+    ctx.beginPath(); ctx.arc(cx, cy, 4, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // Airplane seen from above, flying down toward the player
+  function drawPlane(o) {
+    const { cx, cy } = o;
+    ctx.fillStyle = "#c8ced9";
+    // wings
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - 6);
+    ctx.lineTo(cx + 70, cy - 14);
+    ctx.lineTo(cx + 70, cy - 4);
+    ctx.lineTo(cx + 10, cy + 14);
+    ctx.lineTo(cx - 10, cy + 14);
+    ctx.lineTo(cx - 70, cy - 4);
+    ctx.lineTo(cx - 70, cy - 14);
+    ctx.closePath();
+    ctx.fill();
+    // tail
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - 30);
+    ctx.lineTo(cx + 22, cy - 38);
+    ctx.lineTo(cx + 22, cy - 32);
+    ctx.lineTo(cx - 22, cy - 32);
+    ctx.lineTo(cx - 22, cy - 38);
+    ctx.closePath();
+    ctx.fill();
+    // body
+    ctx.fillStyle = "#e9edf5";
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, 8, 38, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // engines
+    ctx.fillStyle = "#8a93a8";
+    ctx.fillRect(cx - 34, cy - 6, 8, 16);
+    ctx.fillRect(cx + 26, cy - 6, 8, 16);
+    // cockpit
+    ctx.fillStyle = "#3b4b7a";
+    ctx.beginPath(); ctx.ellipse(cx, cy + 26, 4, 6, 0, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // Missile pointing down, flame behind it
+  function drawMissile(o, t) {
+    const { cx, cy } = o, h = TYPES.missile.h;
+    const top = cy - h / 2;
+    ctx.fillStyle = "#ffb347";
+    ctx.beginPath();
+    ctx.moveTo(cx - 5, top + 4);
+    ctx.lineTo(cx, top - 14 - Math.sin(t * 40 + cx) * 5);
+    ctx.lineTo(cx + 5, top + 4);
+    ctx.fill();
+    ctx.fillStyle = "#d9dde6";
+    ctx.fillRect(cx - 6, top + 4, 12, h - 20);
+    ctx.fillStyle = "#e63946";
+    ctx.beginPath();
+    ctx.moveTo(cx - 6, top + h - 16);
+    ctx.lineTo(cx, top + h);
+    ctx.lineTo(cx + 6, top + h - 16);
+    ctx.fill();
+    ctx.fillStyle = "#6c7486";
+    ctx.beginPath();
+    ctx.moveTo(cx - 6, top + 6); ctx.lineTo(cx - 12, top + 2); ctx.lineTo(cx - 6, top + 18);
+    ctx.moveTo(cx + 6, top + 6); ctx.lineTo(cx + 12, top + 2); ctx.lineTo(cx + 6, top + 18);
+    ctx.fill();
+  }
+
+  // A sneaker, tumbling. Just for fun.
+  function drawShoe(o) {
+    ctx.save();
+    ctx.translate(o.cx, o.cy);
+    ctx.rotate(o.spin);
+    ctx.fillStyle = "#f2f2f2";                       // sole
+    ctx.beginPath();
+    ctx.roundRect(-24, 6, 48, 8, 4);
+    ctx.fill();
+    ctx.fillStyle = "#ff6b35";                       // upper
+    ctx.beginPath();
+    ctx.moveTo(-22, 6);
+    ctx.lineTo(-22, -12);
+    ctx.quadraticCurveTo(-18, -16, -10, -14);
+    ctx.lineTo(-4, -4);
+    ctx.quadraticCurveTo(14, -6, 24, 6);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "#ffffff";                     // laces
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-8, -9); ctx.lineTo(-2, -2);
+    ctx.moveTo(-2, -10); ctx.lineTo(4, -3);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawObjects(t) {
+    for (const o of g.objects) {
+      if (o.type === "drone") drawDrone(o);
+      else if (o.type === "plane") drawPlane(o);
+      else if (o.type === "missile") drawMissile(o, t);
+      else drawShoe(o);
+    }
+  }
+
+  function drawHud() {
+    ctx.fillStyle = "#e8ecff";
+    ctx.font = "bold 32px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(String(g.score), W / 2, 44);
+
+    ctx.textAlign = "left";
+    ctx.font = "bold 14px system-ui, sans-serif";
+    ctx.fillStyle = "#9aa4c7";
+    ctx.fillText("HULL", 16, 30);
+    for (let i = 0; i < SETTINGS.hull; i++) {
+      ctx.fillStyle = i < g.hull ? "#7cf29c" : "#2a3358";
+      ctx.fillRect(60 + i * 22, 18, 16, 14);
+    }
+
+    if (g.fasterTimer > 0) {
+      ctx.globalAlpha = Math.min(1, g.fasterTimer * 2);
+      ctx.fillStyle = "#ffcc4d";
+      ctx.font = "bold 36px system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("Faster!", W / 2, 100);
+      ctx.globalAlpha = 1;
+    }
+    if (state === "playing" && g.time < 3) {
+      ctx.textAlign = "center";
+      ctx.font = "16px system-ui, sans-serif";
+      ctx.fillStyle = "rgba(232,236,255," + Math.min(1, 3 - g.time) + ")";
+      ctx.fillText("Hold ← / → to steer", W / 2, H - 14);
+    }
+  }
+
+  function drawBanner(text, sub) {
+    ctx.fillStyle = "rgba(5,7,15,0.6)";
+    ctx.fillRect(0, 0, W, H);
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#e8ecff";
+    ctx.font = "bold 42px system-ui, sans-serif";
+    ctx.fillText(text, W / 2, H / 2);
+    if (sub) {
+      ctx.font = "18px system-ui, sans-serif";
+      ctx.fillStyle = "#9aa4c7";
+      ctx.fillText(sub, W / 2, H / 2 + 36);
+    }
+  }
+
+  function draw(t) {
+    drawStars(t);
+    if (!g) return;
+    drawObjects(t);
+    drawDestroyer(g.x, SHIP.y, g.safeTimer > 0 || state === "destroyed", t);
+    drawHud();
+    if (state === "paused") drawBanner("Paused", "Tap or press Space to continue");
+    if (state === "destroyed") drawBanner("Destroyed!", "Score: " + g.score);
+  }
+
+  // ---------- Main loop (fixed steps, one loop for the whole page) ----------
+  const STEP = 1 / 120;
+  let lastTime = performance.now();
+  let acc = 0, visualTime = 0;
+  function frame(now) {
+    let dt = (now - lastTime) / 1000;
+    lastTime = now;
+    if (dt > 0.1) dt = 0.1;        // after a long gap, never jump ahead
+    if (state === "playing" || state === "destroyed") {
+      acc += dt;
+      while (acc >= STEP) { step(STEP); acc -= STEP; }
+    } else {
+      acc = 0;
+    }
+    if (state !== "paused") visualTime += dt;
+    draw(visualTime);
+    requestAnimationFrame(frame);
+  }
+
+  // ---------- Controls ----------
+  const LEFT_KEYS = ["ArrowLeft", "KeyA"];
+  const RIGHT_KEYS = ["ArrowRight", "KeyD"];
+
+  window.addEventListener("keydown", (e) => {
+    const isLeft = LEFT_KEYS.includes(e.code), isRight = RIGHT_KEYS.includes(e.code);
+    const isStart = e.code === "Space" || e.key === "Enter";
+    if (!isLeft && !isRight && !isStart) return;
+
+    if (state === "menu") {
+      if (!isStart) return;
+      e.preventDefault();
+      if (e.repeat) return;
+      if (performance.now() - menuOpenedAt < 400) return; // avoid accidental restart
+      startGame();
+      return;
+    }
+    e.preventDefault();
+    if (state === "paused") {
+      if (!e.repeat) state = "playing";
+      if (isStart) return;
+    }
+    if (isLeft) input.left = true;
+    if (isRight) input.right = true;
+  });
+
+  window.addEventListener("keyup", (e) => {
+    if (LEFT_KEYS.includes(e.code)) input.left = false;
+    if (RIGHT_KEYS.includes(e.code)) input.right = false;
+  });
+
+  // Touch / mouse: hold the left half to go left, the right half to go right
+  function touchDirection(e) {
+    const r = canvas.getBoundingClientRect();
+    return (e.clientX - r.left) < r.width / 2 ? -1 : 1;
+  }
+  canvas.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    if (state === "paused") { state = "playing"; return; }
+    if (state !== "playing") return;
+    canvas.setPointerCapture?.(e.pointerId);
+    input.touch = touchDirection(e);
+  });
+  canvas.addEventListener("pointermove", (e) => {
+    if (input.touch !== 0) input.touch = touchDirection(e);
+  });
+  for (const ev of ["pointerup", "pointercancel"]) {
+    canvas.addEventListener(ev, () => { input.touch = 0; });
+  }
+
+  newGameBtn.addEventListener("click", () => { if (state === "menu") startGame(); });
+  document.addEventListener("visibilitychange", () => { if (document.hidden) pause(); });
+  window.addEventListener("blur", pause);
+
+  // Read-only peek for testing in the browser console
+  window.droneDodger = {
+    get state() { return state; },
+    get score() { return g ? g.score : 0; },
+    get hull() { return g ? g.hull : SETTINGS.hull; },
+    get speed() { return g ? g.speed : SETTINGS.startSpeed; },
+    get x() { return g ? g.x : 0; },
+    get lastScore() { return lastScore; },
+    get topScore() { return topScore; },
+    get waves() {
+      return g ? g.waves.map(w => ({
+        passed: w.passed, safeLane: w.safeLane,
+        objects: w.objects.map(o => ({ type: o.type, cx: o.cx, cy: o.cy }))
+      })) : [];
+    },
+    laneWidth: LANE, shipY: SHIP.y, shipW: SHIP.w, shipH: SHIP.h
+  };
+
+  showMenu(false);
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
