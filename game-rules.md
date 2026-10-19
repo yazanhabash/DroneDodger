@@ -1,6 +1,6 @@
 # Game rules: Drone Dodger
 
-**Version:** rules v3, 2026-10-19 (matches brief v4: top-down, left/right steering)
+**Version:** rules v4, 2026-10-19 (matches brief v5: per-object speeds)
 
 ## Goal (one sentence)
 
@@ -31,6 +31,7 @@ The game only listens to ← → A D, Space and Enter. Switching tabs or windows
 - Each wave has one **open lane**. The open lane moves at most 2 lanes from the previous one, and every lane in between is also left empty in the new wave. This guarantees a reachable route.
 - The other lanes are usually filled with a random mix: drones, missiles, shoes, and airplanes (an airplane takes two neighbouring lanes).
 - Every wave has at least one object.
+- **Speeds:** drones and shoes fall at 1×, airplanes at 1.5× and missiles at 2×. Faster objects start higher up, off-screen, so all of a wave's objects reach the destroyer's row at the same moment. That keeps the open route reachable.
 
 ## Collisions
 
@@ -85,7 +86,7 @@ Record Passed, Failed, or Not tested for each.
 4. Steer into an object. Is the hull 1, does the destroyer flash, and does the game continue?
 5. Get hit again after the flashing stops. Does "Destroyed!" appear, then the start screen with that score?
 6. Reach 10 points. Does "Faster!" appear, and do objects fall faster?
-7. Over a couple of rounds, do you see drones, airplanes, missiles and shoes?
+7. Over a couple of rounds, do you see drones, airplanes, missiles and shoes? Do missiles look fastest, planes faster than drones, and drones and shoes slowest?
 8. Is there always an opening you can reach, including after 20+ points?
 9. Switch to another tab for 10 seconds and come back. Is it paused, and does it continue safely?
 10. Play three rounds in a row. Does each start fresh and at normal speed?

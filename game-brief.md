@@ -1,13 +1,14 @@
 # Game brief: Drone Dodger
 
 **Project:** DroneDodger (separate from the website and from the course materials)
-**Version:** brief v4, 2026-10-19
+**Version:** brief v5, 2026-10-19
 
 **History:**
 - v1: tap to climb, like Flappy Bird.
 - v2: added a start screen with last score and top score, and a 2-hit hull.
 - v3: steady Up/Down movement with no gravity.
 - v4: redesigned as a top-down game. Objects fall from the top, you steer left and right, there are four object types, and there is always a way out.
+- v5: each object type falls at its own speed.
 
 ## Concept
 
@@ -32,14 +33,14 @@ Let go and the destroyer stops.
 
 ## Falling objects
 
-| Object | Look | Size |
-| --- | --- | --- |
-| Drone | Four-rotor drone with a red eye | Medium |
-| Airplane | Plane seen from above | Wide (two lanes) |
-| Ballistic missile | Thin missile with a flame trail | Narrow and tall |
-| Shoe | A tumbling sneaker, just for fun | Medium |
+| Object | Look | Size | Falling speed |
+| --- | --- | --- | --- |
+| Drone | Four-rotor drone with a red eye | Medium | 1× (slowest) |
+| Shoe | A tumbling sneaker, just for fun | Medium | 1× (same as a drone) |
+| Airplane | Plane seen from above | Wide (two lanes) | 1.5× |
+| Ballistic missile | Thin missile with a flame trail | Narrow and tall | 2× (fastest) |
 
-All objects in a wave fall at the same speed. They only look different. They are not separate game rules.
+Faster objects start higher up, off-screen, so every object in a wave still reaches your ship's row together. Missiles and planes appear later and catch up with the drones in their wave.
 
 ## Waves and the way out
 
@@ -61,7 +62,7 @@ All objects in a wave fall at the same speed. They only look different. They are
 ## Scoring and speed
 
 - **+1 point** for each wave that gets completely past you, counted once, even if it hit you.
-- At **10, 20, 30… points**, everything falls about 10% faster, up to a maximum. "Faster!" flashes when this happens.
+- At **10, 20, 30… points**, everything falls about 10% faster, up to a maximum. Each type keeps its speed ratio. "Faster!" flashes when this happens.
 
 ## Last score and top score
 

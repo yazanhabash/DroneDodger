@@ -126,13 +126,18 @@
   const STORE_LAST = "droneDodger.lastScore";
   const STORE_TOP = "droneDodger.topScore";
 
-  // Object types: size of the drawing and of the (slightly smaller) hit box
+  // Object types: size of the drawing, the (slightly smaller) hit box,
+  // and falling speed compared with a drone (1 = drone speed)
   const TYPES = {
-    drone:   { w: 46, h: 46, hitW: 38, hitH: 38 },
-    plane:   { w: 140, h: 76, hitW: 124, hitH: 40 },   // takes two lanes
-    missile: { w: 20, h: 70, hitW: 14, hitH: 62 },
-    shoe:    { w: 50, h: 50, hitW: 34, hitH: 34 }
+    drone:   { w: 46, h: 46, hitW: 38, hitH: 38, speed: 1 },     // slowest
+    plane:   { w: 140, h: 76, hitW: 124, hitH: 40, speed: 1.5 }, // takes two lanes
+    missile: { w: 20, h: 70, hitW: 14, hitH: 62, speed: 2 },     // fastest
+    shoe:    { w: 50, h: 50, hitW: 34, hitH: 34, speed: 1 }
   };
+  // Every object in a wave reaches the ship's row at the same moment.
+  // Faster objects simply start higher up (off-screen) and catch up,
+  // so the guaranteed escape route still lines up.
+  const SHIP_ROW = SHIP.y + SHIP.h / 2;
 
   const canvas = document.getElementById("game");
   const ctx = canvas.getContext("2d");
@@ -237,6 +242,7 @@
   }
 
   function addObject(wave, type, cx, cy) {
+    cy = SHIP_ROW - TYPES[type].speed * (SHIP_ROW - cy);
     const o = { type, cx, cy, spin: random() * Math.PI * 2, wave };
     wave.objects.push(o);
     g.objects.push(o);
@@ -309,7 +315,7 @@
       g.distanceToNext += SETTINGS.waveSpacing;
     }
     for (const o of g.objects) {
-      o.cy += move;
+      o.cy += move * TYPES[o.type].speed;
       if (o.type === "shoe") o.spin += dt * 5;
       if (o.type === "drone") o.spin += dt * 30;
     }
