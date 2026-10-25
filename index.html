@@ -6,11 +6,11 @@
 <title>Drone Dodger</title>
 <style>
   :root {
-    --bg: #05070f;
-    --panel: rgba(8, 12, 28, 0.93);
-    --text: #e8ecff;
-    --muted: #9aa4c7;
-    --accent: #4fd1ff;
+    --bg: #04202e;
+    --panel: rgba(4, 28, 42, 0.93);
+    --text: #eaf6ff;
+    --muted: #9fc3d6;
+    --accent: #ffd166;
     --good: #7cf29c;
   }
   * { box-sizing: border-box; }
@@ -26,7 +26,6 @@
   }
   .wrap {
     position: relative;
-    /* tall play area that fits the window on laptops and phones */
     width: min(100%, calc((100vh - 32px) * 2 / 3));
     width: min(100%, calc((100dvh - 32px) * 2 / 3));
     aspect-ratio: 2 / 3;
@@ -36,7 +35,7 @@
     width: 100%;
     height: 100%;
     border-radius: 12px;
-    border: 1px solid #1d2647;
+    border: 1px solid #0f4a63;
     touch-action: none;
     -webkit-tap-highlight-color: transparent;
     -webkit-user-select: none;
@@ -53,7 +52,7 @@
   .menu[hidden] { display: none; }
   .card {
     background: var(--panel);
-    border: 1px solid #263063;
+    border: 1px solid #1d6684;
     border-radius: 14px;
     padding: 22px 20px;
     text-align: center;
@@ -71,14 +70,14 @@
     font: inherit;
     font-size: 18px;
     font-weight: 700;
-    color: #031018;
+    color: #2b1d00;
     background: var(--accent);
     border: none;
     border-radius: 999px;
     padding: 12px 34px;
     cursor: pointer;
   }
-  button:hover { filter: brightness(1.1); }
+  button:hover { filter: brightness(1.08); }
   button:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
 </style>
 </head>
@@ -88,9 +87,9 @@
   <div class="menu" id="menu">
     <div class="card">
       <h1>Drone Dodger</h1>
-      <p class="how">Drones, planes, missiles… and shoes are falling.<br>
-        Hold <strong>←</strong> or <strong>→</strong> to steer. On a phone, hold the left or right side.<br>
-        You can survive one hit. The second one ends the round.</p>
+      <p class="how">Drones, planes, missiles… and shoes are coming at your ship.<br>
+        Steer with the <strong>arrow keys</strong>. On a phone, <strong>touch where you want to go</strong>.<br>
+        Your hull takes 2 hits. The 3rd sinks you. Clear every level to win.</p>
       <div class="scores">
         <div>Last score<strong id="lastScore">0</strong></div>
         <div>Top score<strong id="topScore">0</strong></div>
@@ -103,42 +102,198 @@
 
 <script>
 (() => {
-  // ---------- Game settings (change these to tune the game) ----------
+  // =====================================================================
+  //  LEVELS — edit these to design the game
+  // =====================================================================
+  //  Each level is a list of WAVES, played from top to bottom.
+  //  Each wave is exactly 6 characters, one per lane, left to right:
+  //
+  //     D = drone      (slowest, 1x)
+  //     S = shoe       (just for fun, 1x)
+  //     P = airplane   (1.5x) — always write it as a pair: "PP"
+  //     M = missile    (fastest, 2x)
+  //     . = open water (the ship can pass here)
+  //
+  //  A wave of only dots, "......", is a short breather.
+  //  speed   = how fast this level moves (bigger = faster)
+  //  spacing = distance between waves (bigger = more time to react)
+  //
+  //  Every wave needs a way out. The game checks this when it loads and
+  //  lists any problem waves in the browser console.
+  // =====================================================================
+  const LEVELS = [
+    {
+      name: "Calm Waters",
+      speed: 140,
+      spacing: 300,
+      waves: [
+        "D....D",
+        ".D..D.",
+        "DD....",
+        "DDD...",
+        "......",
+        "....DD",
+        "S..D.D",
+        "D.D...",
+        "D..D.S",
+        "DD..DD",
+        "DDD..D",
+        "DS..DD",
+        "D.D...",
+        "D...DD",
+        "DDD..D"
+      ]
+    },
+    {
+      name: "Air Patrol",
+      speed: 165,
+      spacing: 280,
+      waves: [
+        "PP....",
+        "...PP.",
+        "D....D",
+        "PP..PP",
+        "..D...",
+        "PP.D..",
+        "PPD...",
+        "D.PP..",
+        "......",
+        "PP.S.D",
+        "PP.D..",
+        "PPD...",
+        "PPDS..",
+        "S.PP.D",
+        "PP.D..",
+        "DD...D",
+        "PP.PP.",
+        ".D.D.D"
+      ]
+    },
+    {
+      name: "Missile Storm",
+      speed: 185,
+      spacing: 270,
+      waves: [
+        "M....M",
+        ".M..M.",
+        "MM....",
+        "...MMM",
+        "D.M.M.",
+        "M...PP",
+        "M.M..D",
+        ".MMM..",
+        "......",
+        "MM.PP.",
+        "MM.MM.",
+        "PPM...",
+        "PP.M..",
+        "M.SM.M",
+        ".MMM.D",
+        "PP.M..",
+        "MMPP..",
+        "MM.M..",
+        "MMMM..",
+        "MM.M.M"
+      ]
+    }
+  ];
+
+  // ---------- Game settings ----------
   const SETTINGS = {
-    shipSpeed: 300,         // sideways speed while a key is held (pixels per second)
-    startSpeed: 170,        // how fast objects fall at the start (pixels per second)
-    speedUpEvery: 10,       // points between speed-ups
-    speedUpFactor: 1.10,    // +10% each time
-    maxSpeed: 340,          // falling speed never goes above this
-    waveSpacing: 250,       // vertical distance between waves
-    lanes: 6,               // the screen is split into this many lanes
-    fillChance: 0.85,       // chance each lane outside the escape route gets an object
-    maxSafeShift: 2,        // the open lane moves at most this many lanes between waves
-    hull: 2,                // hits you can take (the last one ends the round)
-    safeTime: 1.5,          // seconds of no damage after the first hit
-    destroyedPause: 1.0,
-    fasterMessageTime: 1.0
+    shipSpeed: 280,         // how fast the ship moves while steering (pixels per second)
+    hull: 3,                // hits until the ship sinks (the last one ends the game)
+    safeTime: 1.5,          // seconds of no damage after a hit
+    firstWaveDelay: 140,    // calm distance before a level's first wave
+    levelBannerTime: 2.2,
+    levelClearTime: 1.8,
+    sunkPause: 1.2
   };
 
-  const W = 480, H = 720;
-  const LANE = W / SETTINGS.lanes;
-  const SHIP = { w: 40, h: 68, y: H - 100 };
+  const W = 480, H = 720, LANES = 6;
+  const LANE = W / LANES;
+  const SHIP = { w: 38, h: 80, startY: H - 120 };
+  const SHIP_ROW = SHIP.startY + SHIP.h / 2;   // wave objects all arrive at this row together
   const STORE_LAST = "droneDodger.lastScore";
   const STORE_TOP = "droneDodger.topScore";
 
-  // Object types: size of the drawing, the (slightly smaller) hit box,
-  // and falling speed compared with a drone (1 = drone speed)
+  // Size of each drawing, its (slightly smaller) hit box, and speed vs a drone
   const TYPES = {
-    drone:   { w: 46, h: 46, hitW: 38, hitH: 38, speed: 1 },     // slowest
-    plane:   { w: 140, h: 76, hitW: 124, hitH: 40, speed: 1.5 }, // takes two lanes
-    missile: { w: 20, h: 70, hitW: 14, hitH: 62, speed: 2 },     // fastest
-    shoe:    { w: 50, h: 50, hitW: 34, hitH: 34, speed: 1 }
+    D: { name: "drone",   w: 46,  h: 46, hitW: 38,  hitH: 38, speed: 1 },
+    S: { name: "shoe",    w: 50,  h: 50, hitW: 34,  hitH: 34, speed: 1 },
+    P: { name: "plane",   w: 140, h: 76, hitW: 124, hitH: 40, speed: 1.5 },
+    M: { name: "missile", w: 20,  h: 70, hitW: 14,  hitH: 62, speed: 2 }
   };
-  // Every object in a wave reaches the ship's row at the same moment.
-  // Faster objects simply start higher up (off-screen) and catch up,
-  // so the guaranteed escape route still lines up.
-  const SHIP_ROW = SHIP.y + SHIP.h / 2;
 
+  // ---------- Level checker: every wave must have a reachable way out ----------
+  function checkLevel(level) {
+    const problems = [];
+    const waves = level.waves;
+    waves.forEach((w, i) => {
+      if (w.length !== LANES) problems.push(`wave ${i + 1} "${w}": needs exactly ${LANES} characters`);
+      if (/[^DSPM.]/.test(w)) problems.push(`wave ${i + 1} "${w}": only D S P M . are allowed`);
+      const pairs = w.replace(/PP/g, "");
+      if (pairs.includes("P")) problems.push(`wave ${i + 1} "${w}": planes must be written as a pair "PP"`);
+    });
+    if (problems.length) return { ok: false, problems, path: [] };
+
+    // Lanes the ship could be in safely, wave by wave (checked at the ship's start row)
+    let reachable = null, rests = 0;
+    const path = [];
+    const history = [];
+    for (let i = 0; i < waves.length; i++) {
+      const w = waves[i];
+      if (w === "......") { rests++; continue; }
+      const open = [...w].map(c => c === ".");
+      if (!open.includes(true)) {
+        problems.push(`wave ${i + 1} "${w}": no open lane at all`);
+        return { ok: false, problems, path: [] };
+      }
+      let next;
+      if (reachable === null) {
+        next = open.map(o => o);                       // first wave: plenty of time to get anywhere
+      } else {
+        // time from the previous wave clearing the ship until this wave's
+        // neighbour arrives, turned into how many lanes the ship can cross
+        const time = (2 * level.spacing * (1 + rests) - 160) / level.speed;
+        const reach = Math.max(1, Math.floor(0.7 * SETTINGS.shipSpeed * time / LANE));
+        next = open.map((o, j) => {
+          if (!o) return false;
+          for (let from = 0; from < LANES; from++) {
+            if (!reachable[from] || Math.abs(from - j) > reach) continue;
+            let clear = true;
+            for (let l = Math.min(from, j); l <= Math.max(from, j); l++) if (!open[l]) clear = false;
+            if (clear) return true;
+          }
+          return false;
+        });
+      }
+      if (!next.includes(true)) {
+        problems.push(`wave ${i + 1} "${w}": no way to reach an open lane from the wave before it`);
+        return { ok: false, problems, path: [] };
+      }
+      history.push({ index: i, ok: next });
+      reachable = next;
+      rests = 0;
+    }
+    // Pick one safe route (walk backwards so every step connects)
+    let lane = -1;
+    for (let k = history.length - 1; k >= 0; k--) {
+      const ok = history[k].ok;
+      if (lane < 0 || !ok[lane]) {
+        let best = -1;
+        for (let j = 0; j < LANES; j++) if (ok[j] && (best < 0 || Math.abs(j - lane) < Math.abs(best - lane))) best = j;
+        lane = best;
+      }
+      path[history[k].index] = lane;
+    }
+    return { ok: true, problems, path };
+  }
+  const LEVEL_CHECKS = LEVELS.map(checkLevel);
+  LEVEL_CHECKS.forEach((c, i) => {
+    if (!c.ok) console.warn(`Drone Dodger — Level ${i + 1} "${LEVELS[i].name}" needs fixing:\n` + c.problems.join("\n"));
+  });
+
+  // ---------- Page elements ----------
   const canvas = document.getElementById("game");
   const ctx = canvas.getContext("2d");
   const menu = document.getElementById("menu");
@@ -158,7 +313,7 @@
   let lastScore = loadNumber(STORE_LAST);
   let topScore = loadNumber(STORE_TOP);
 
-  // ---------- Repeatable randomness (add ?seed=123 to the URL to test) ----------
+  // ---------- Sea decoration (fixed pattern) ----------
   function makeRandom(seed) {
     let a = seed >>> 0;
     return () => {
@@ -169,101 +324,78 @@
       return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
   }
-  const seedParam = new URLSearchParams(location.search).get("seed");
-  let random = makeRandom(seedParam ? Number(seedParam) : Date.now());
-
-  const starRandom = makeRandom(7);
-  const stars = Array.from({ length: 80 }, () => ({
-    x: starRandom() * W, y: starRandom() * H,
-    r: starRandom() * 1.4 + 0.3, depth: starRandom() * 0.6 + 0.2
+  const seaRandom = makeRandom(11);
+  const foam = Array.from({ length: 60 }, () => ({
+    x: seaRandom() * W, y: seaRandom() * H,
+    r: seaRandom() * 2.5 + 1, a: seaRandom() * 0.25 + 0.08
   }));
 
   // ---------- Game state ----------
-  let state = "menu";            // menu | playing | paused | destroyed
+  // menu | playing | paused | levelclear | sunk | won
+  let state = "menu";
   let menuOpenedAt = 0;
   let g = null;
 
-  function newRound() {
-    if (seedParam) random = makeRandom(Number(seedParam));
+  function newGameState() {
     return {
       x: W / 2 - SHIP.w / 2,
+      y: SHIP.startY,
       score: 0,
       hull: SETTINGS.hull,
-      speed: SETTINGS.startSpeed,
-      waves: [],
-      objects: [],
-      distanceToNext: 120,         // short calm moment before the first wave
-      safeLane: Math.floor(SETTINGS.lanes / 2),
+      level: 0,
       safeTimer: 0,
-      fasterTimer: 0,
-      destroyedTimer: 0,
+      timer: 0,
+      wake: [],
+      wakeClock: 0,
+      seaScroll: 0,
+      ...newLevelState(0)
+    };
+  }
+
+  function newLevelState(levelIndex) {
+    return {
+      level: levelIndex,
+      speed: LEVELS[levelIndex].speed,
+      nextWave: 0,
+      distanceToNext: SETTINGS.firstWaveDelay,
+      waves: [],
+      bannerTimer: SETTINGS.levelBannerTime,
       time: 0
     };
   }
 
-  // ---------- Building a wave that always has a way out ----------
-  function makeWave() {
-    const n = SETTINGS.lanes;
-    // The open lane stays within reach of the previous one
-    const shift = Math.floor(random() * (SETTINGS.maxSafeShift * 2 + 1)) - SETTINGS.maxSafeShift;
-    const prev = g.safeLane;
-    const safe = Math.max(0, Math.min(n - 1, prev + shift));
-    g.safeLane = safe;
-
-    // Keep the open lane AND the route to it from the last opening clear,
-    // so the ship can always slide across in time, even at top speed.
-    const taken = new Array(n).fill(false);
-    for (let l = Math.min(prev, safe); l <= Math.max(prev, safe); l++) taken[l] = true;
-    const wave = { y: -40, passed: false, safeLane: safe, objects: [] };
+  function spawnWave(text, index) {
+    const wave = { index, passed: false, objects: [] };
     const baseY = -60;
-
-    for (let lane = 0; lane < n; lane++) {
-      if (taken[lane]) continue;
-      if (random() > SETTINGS.fillChance) continue;
-
-      // A plane needs two free neighbouring lanes
-      if (lane + 1 < n && !taken[lane + 1] && random() < 0.22) {
-        taken[lane] = taken[lane + 1] = true;
-        addObject(wave, "plane", (lane + 1) * LANE, baseY);
-        continue;
-      }
-      taken[lane] = true;
-      const roll = random();
-      const type = roll < 0.45 ? "drone" : roll < 0.8 ? "missile" : "shoe";
-      const cx = lane * LANE + LANE / 2 + (random() - 0.5) * (LANE - TYPES[type].w) * 0.8;
-      addObject(wave, type, cx, baseY + (random() - 0.5) * 40);
+    for (let lane = 0; lane < LANES; lane++) {
+      const c = text[lane];
+      if (c === "." || !TYPES[c]) continue;
+      let cx = lane * LANE + LANE / 2;
+      if (c === "P") { cx = (lane + 1) * LANE; lane++; }      // plane covers two lanes
+      const t = TYPES[c];
+      // Faster objects start higher up so the whole wave reaches the ship's row together
+      const cy = SHIP_ROW - t.speed * (SHIP_ROW - baseY);
+      wave.objects.push({ type: c, cx, cy, spin: lane * 1.3 });
     }
-    // Make sure every wave has at least one object
-    if (wave.objects.length === 0) {
-      const lane = taken.indexOf(false);
-      if (lane >= 0) addObject(wave, "drone", lane * LANE + LANE / 2, baseY);
-    }
-    g.waves.push(wave);
-  }
-
-  function addObject(wave, type, cx, cy) {
-    cy = SHIP_ROW - TYPES[type].speed * (SHIP_ROW - cy);
-    const o = { type, cx, cy, spin: random() * Math.PI * 2, wave };
-    wave.objects.push(o);
-    g.objects.push(o);
+    if (wave.objects.length) g.waves.push(wave);
   }
 
   // ---------- Menu / round flow ----------
-  function showMenu(newTop) {
+  function showMenu(message) {
     state = "menu";
     menuOpenedAt = performance.now();
     lastEl.textContent = lastScore;
     topEl.textContent = topScore;
-    newTopEl.textContent = newTop ? "New top score!" : "";
+    newTopEl.textContent = message || "";
     menu.hidden = false;
     newGameBtn.focus({ preventScroll: true });
   }
 
-  const input = { left: false, right: false, touch: 0 };   // touch: -1 left, 1 right
-  function clearInput() { input.left = false; input.right = false; input.touch = 0; }
+  const input = { left: false, right: false, up: false, down: false, target: null };
+  function clearInput() { input.left = input.right = input.up = input.down = false; input.target = null; }
 
   function startGame() {
-    g = newRound();
+    g = newGameState();
     clearInput();
     menu.hidden = true;
     state = "playing";
@@ -275,136 +407,246 @@
     if (state === "playing") state = "paused";
   }
 
-  function endRound() {
-    state = "destroyed";
-    g.destroyedTimer = SETTINGS.destroyedPause;
-  }
-
-  function finishRound() {
+  function finishGame(won) {
     lastScore = g.score;
     const beat = g.score > topScore;
     if (beat) topScore = g.score;
     saveNumber(STORE_LAST, lastScore);
     saveNumber(STORE_TOP, topScore);
-    showMenu(beat);
+    const parts = [];
+    if (won) parts.push(`You cleared all ${LEVELS.length} levels!`);
+    if (beat) parts.push("New top score!");
+    showMenu(parts.join(" "));
   }
 
   // ---------- Rules: one fixed step of the simulation ----------
   function step(dt) {
-    if (state === "destroyed") {
-      g.destroyedTimer -= dt;
-      if (g.destroyedTimer <= 0) finishRound();
+    if (state === "sunk" || state === "won" || state === "levelclear") {
+      g.timer -= dt;
+      g.seaScroll += 40 * dt;
+      updateWake(dt, false);
+      if (g.timer > 0) return;
+      if (state === "sunk") return finishGame(false);
+      if (state === "won") return finishGame(true);
+      Object.assign(g, newLevelState(g.level + 1));      // next level; score, hull and position carry over
+      state = "playing";
       return;
     }
     if (state !== "playing") return;
 
     g.time += dt;
+    g.seaScroll += g.speed * 0.35 * dt;
     if (g.safeTimer > 0) g.safeTimer = Math.max(0, g.safeTimer - dt);
-    if (g.fasterTimer > 0) g.fasterTimer = Math.max(0, g.fasterTimer - dt);
+    if (g.bannerTimer > 0) g.bannerTimer = Math.max(0, g.bannerTimer - dt);
 
-    // Ship: moves sideways only while held; edges stop it
-    let dir = (input.right ? 1 : 0) - (input.left ? 1 : 0);
-    if (dir === 0) dir = input.touch;
-    g.x = Math.max(0, Math.min(W - SHIP.w, g.x + dir * SETTINGS.shipSpeed * dt));
+    moveShip(dt);
+    updateWake(dt, true);
 
-    // Falling objects
-    const move = g.speed * dt;
-    g.distanceToNext -= move;
-    if (g.distanceToNext <= 0) {
-      makeWave();
-      g.distanceToNext += SETTINGS.waveSpacing;
+    // Bring in the next wave from the level preset
+    const level = LEVELS[g.level];
+    if (g.nextWave < level.waves.length) {
+      g.distanceToNext -= g.speed * dt;
+      if (g.distanceToNext <= 0) {
+        spawnWave(level.waves[g.nextWave], g.nextWave);
+        g.nextWave++;
+        g.distanceToNext += level.spacing;
+      }
     }
-    for (const o of g.objects) {
-      o.cy += move * TYPES[o.type].speed;
-      if (o.type === "shoe") o.spin += dt * 5;
-      if (o.type === "drone") o.spin += dt * 30;
-    }
-    for (const w of g.waves) w.y += move;
-    g.objects = g.objects.filter(o => o.cy - 80 < H);
-    g.waves = g.waves.filter(w => w.y - 100 < H);
 
-    // Hits (hit boxes are a little smaller than the drawings, to feel fair)
-    const sx = g.x + 6, sy = SHIP.y + 6, sw = SHIP.w - 12, sh = SHIP.h - 12;
+    // Move objects (each type at its own speed)
+    for (const w of g.waves) {
+      for (const o of w.objects) {
+        o.cy += g.speed * TYPES[o.type].speed * dt;
+        if (o.type === "S") o.spin += dt * 5;
+        if (o.type === "D") o.spin += dt * 30;
+      }
+    }
+
+    // Hits
+    const sx = g.x + 5, sy = g.y + 6, sw = SHIP.w - 10, sh = SHIP.h - 12;
     if (g.safeTimer === 0) {
-      for (const o of g.objects) {
-        const t = TYPES[o.type];
-        const ox = o.cx - t.hitW / 2, oy = o.cy - t.hitH / 2;
-        if (sx < ox + t.hitW && sx + sw > ox && sy < oy + t.hitH && sy + sh > oy) {
-          g.hull -= 1;
-          if (g.hull <= 0) { endRound(); return; }
-          g.safeTimer = SETTINGS.safeTime;
-          break;
+      outer:
+      for (const w of g.waves) {
+        for (const o of w.objects) {
+          const t = TYPES[o.type];
+          const ox = o.cx - t.hitW / 2, oy = o.cy - t.hitH / 2;
+          if (sx < ox + t.hitW && sx + sw > ox && sy < oy + t.hitH && sy + sh > oy) {
+            g.hull -= 1;
+            if (g.hull <= 0) { state = "sunk"; g.timer = SETTINGS.sunkPause; return; }
+            g.safeTimer = SETTINGS.safeTime;
+            break outer;
+          }
         }
       }
     }
 
-    // Score: +1 when a whole wave is below the ship
+    // Score: +1 when a whole wave has gone past the ship
+    const shipBottom = Math.min(g.y + SHIP.h, H - 1);
     for (const w of g.waves) {
       if (w.passed) continue;
       const lowestTop = Math.min(...w.objects.map(o => o.cy - TYPES[o.type].h / 2));
-      if (lowestTop > SHIP.y + SHIP.h) {
-        w.passed = true;
-        g.score += 1;
-        if (g.score % SETTINGS.speedUpEvery === 0) {
-          const level = g.score / SETTINGS.speedUpEvery;
-          const newSpeed = Math.min(SETTINGS.startSpeed * Math.pow(SETTINGS.speedUpFactor, level), SETTINGS.maxSpeed);
-          if (newSpeed > g.speed) { g.speed = newSpeed; g.fasterTimer = SETTINGS.fasterMessageTime; }
-        }
+      if (lowestTop > shipBottom) { w.passed = true; g.score += 1; }
+    }
+
+    // Remove objects that have left the screen, and empty waves
+    for (const w of g.waves) w.objects = w.objects.filter(o => o.cy - 90 < H);
+    g.waves = g.waves.filter(w => w.objects.length > 0);
+
+    // Level finished?
+    if (g.nextWave >= level.waves.length && g.waves.length === 0) {
+      if (g.level + 1 < LEVELS.length) { state = "levelclear"; g.timer = SETTINGS.levelClearTime; }
+      else { state = "won"; g.timer = SETTINGS.levelClearTime; }
+    }
+  }
+
+  function moveShip(dt) {
+    let dx = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+    let dy = (input.down ? 1 : 0) - (input.up ? 1 : 0);
+    if (dx === 0 && dy === 0 && input.target) {
+      // Touch / mouse: head toward the finger
+      const tx = input.target.x - (g.x + SHIP.w / 2);
+      const ty = input.target.y - (g.y + SHIP.h / 2);
+      const dist = Math.hypot(tx, ty);
+      if (dist > 4) {
+        const stepLen = Math.min(dist, SETTINGS.shipSpeed * dt);
+        g.x += tx / dist * stepLen;
+        g.y += ty / dist * stepLen;
+      }
+    } else if (dx || dy) {
+      const len = Math.hypot(dx, dy);
+      g.x += dx / len * SETTINGS.shipSpeed * dt;
+      g.y += dy / len * SETTINGS.shipSpeed * dt;
+    }
+    g.x = Math.max(0, Math.min(W - SHIP.w, g.x));
+    g.y = Math.max(50, Math.min(H - SHIP.h, g.y));      // stay below the score bar
+  }
+
+  // Foam wake behind the ship: a spreading V of foam with a few swirls
+  function updateWake(dt, emit) {
+    g.wakeClock += dt;
+    if (emit && g.wakeClock > 0.035) {
+      g.wakeClock = 0;
+      const sternX = g.x + SHIP.w / 2, sternY = g.y + SHIP.h - 4;
+      for (const side of [-1, 1]) {
+        g.wake.push({ x: sternX + side * 7, y: sternY, age: 0, drift: side, swirl: false });
+      }
+      if (Math.random() < 0.25) {
+        g.wake.push({ x: sternX + (Math.random() - 0.5) * 8, y: sternY + 4, age: 0, drift: 0, swirl: true, turn: Math.random() * 6 });
+      }
+    }
+    for (const p of g.wake) {
+      p.age += dt;
+      p.y += 95 * dt;
+      p.x += p.drift * 34 * dt;
+    }
+    g.wake = g.wake.filter(p => p.age < 1.4);
+  }
+
+  // ---------- Drawing ----------
+  function drawSea() {
+    const grad = ctx.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, "#0a5674");
+    grad.addColorStop(1, "#063a52");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+
+    const scroll = g ? g.seaScroll : performance.now() / 1000 * 30;
+    // gentle wave lines
+    ctx.strokeStyle = "rgba(255,255,255,0.07)";
+    ctx.lineWidth = 2;
+    for (let row = -1; row < H / 46 + 1; row++) {
+      const y0 = ((row * 46 + scroll) % (H + 46)) - 23;
+      ctx.beginPath();
+      for (let x = 0; x <= W; x += 12) {
+        const y = y0 + Math.sin(x / 38 + row * 1.7 + scroll / 60) * 4;
+        if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+    // foam flecks
+    for (const f of foam) {
+      const y = (f.y + scroll * 1.2) % H;
+      ctx.fillStyle = `rgba(255,255,255,${f.a})`;
+      ctx.beginPath();
+      ctx.ellipse(f.x, y, f.r * 2, f.r, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function drawWake() {
+    for (const p of g.wake) {
+      const k = p.age / 1.4;
+      if (p.swirl) {
+        ctx.strokeStyle = `rgba(255,255,255,${0.4 * (1 - k)})`;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 3 + k * 7, p.turn + k * 4, p.turn + k * 4 + Math.PI * 1.3);
+        ctx.stroke();
+      } else {
+        ctx.fillStyle = `rgba(255,255,255,${0.42 * (1 - k)})`;
+        ctx.beginPath();
+        ctx.ellipse(p.x, p.y, 2.5 + k * 5, 2 + k * 3, 0, 0, Math.PI * 2);
+        ctx.fill();
       }
     }
   }
 
-  // ---------- Drawing ----------
-  function drawStars(t) {
-    ctx.fillStyle = "#05070f";
-    ctx.fillRect(0, 0, W, H);
-    for (const s of stars) {
-      const y = (s.y + t * 30 * s.depth) % H;
-      ctx.globalAlpha = 0.35 + s.depth;
-      ctx.fillStyle = "#cfd8ff";
-      ctx.beginPath();
-      ctx.arc(s.x, y, s.r, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.globalAlpha = 1;
-  }
-
-  // Destroyer seen from above, pointing up
-  function drawDestroyer(x, y, flashing, t) {
-    if (flashing && Math.floor(t * 10) % 2 === 0) ctx.globalAlpha = 0.3;
+  // Warship seen from above, bow pointing up
+  function drawShip(x, y, flashing, t) {
+    if (flashing && Math.floor(t * 10) % 2 === 0) ctx.globalAlpha = 0.35;
     const w = SHIP.w, h = SHIP.h, cx = x + w / 2;
-    // engine flames
-    ctx.fillStyle = "#ff9d3c";
-    for (const dx of [-9, 9]) {
-      ctx.beginPath();
-      ctx.moveTo(cx + dx - 4, y + h - 4);
-      ctx.lineTo(cx + dx, y + h + 8 + Math.random() * 8);
-      ctx.lineTo(cx + dx + 4, y + h - 4);
-      ctx.fill();
-    }
+    // bow wave
+    ctx.strokeStyle = "rgba(255,255,255,0.55)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(cx - 10, y + 14); ctx.quadraticCurveTo(cx - 2, y - 2, cx, y - 4);
+    ctx.quadraticCurveTo(cx + 2, y - 2, cx + 10, y + 14);
+    ctx.stroke();
     // hull
-    ctx.fillStyle = "#a9b6d6";
+    ctx.fillStyle = "#6f7c8c";
     ctx.beginPath();
     ctx.moveTo(cx, y);
-    ctx.lineTo(x + w * 0.85, y + h * 0.3);
-    ctx.lineTo(x + w, y + h * 0.75);
-    ctx.lineTo(x + w * 0.75, y + h);
-    ctx.lineTo(x + w * 0.25, y + h);
-    ctx.lineTo(x, y + h * 0.75);
-    ctx.lineTo(x + w * 0.15, y + h * 0.3);
+    ctx.quadraticCurveTo(x + w, y + h * 0.18, x + w, y + h * 0.4);
+    ctx.lineTo(x + w, y + h * 0.9);
+    ctx.lineTo(x + w * 0.85, y + h);
+    ctx.lineTo(x + w * 0.15, y + h);
+    ctx.lineTo(x, y + h * 0.9);
+    ctx.lineTo(x, y + h * 0.4);
+    ctx.quadraticCurveTo(x, y + h * 0.18, cx, y);
     ctx.closePath();
     ctx.fill();
-    // deck details
-    ctx.fillStyle = "#6f7ea6";
-    ctx.fillRect(cx - 7, y + h * 0.45, 14, 18);
-    ctx.fillRect(cx - 1.5, y + h * 0.18, 3, 14);      // forward gun
-    ctx.fillStyle = "#4fd1ff";
-    ctx.fillRect(cx - 4, y + h * 0.5, 8, 4);
+    // deck
+    ctx.fillStyle = "#9aa6b5";
+    ctx.beginPath();
+    ctx.moveTo(cx, y + 6);
+    ctx.quadraticCurveTo(x + w - 5, y + h * 0.2, x + w - 5, y + h * 0.42);
+    ctx.lineTo(x + w - 5, y + h - 6);
+    ctx.lineTo(x + 5, y + h - 6);
+    ctx.lineTo(x + 5, y + h * 0.42);
+    ctx.quadraticCurveTo(x + 5, y + h * 0.2, cx, y + 6);
+    ctx.fill();
+    // forward gun
+    ctx.fillStyle = "#4b5563";
+    ctx.beginPath(); ctx.arc(cx, y + h * 0.26, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.fillRect(cx - 1.5, y + h * 0.1, 3, 12);
+    // bridge and mast
+    ctx.fillStyle = "#e5e9ef";
+    ctx.fillRect(cx - 9, y + h * 0.38, 18, 16);
+    ctx.fillStyle = "#3b82b8";
+    ctx.fillRect(cx - 7, y + h * 0.38 + 2, 14, 3);
+    ctx.fillStyle = "#4b5563";
+    ctx.fillRect(cx - 5, y + h * 0.6, 10, 8);                 // funnel
+    // helipad
+    ctx.strokeStyle = "#e5e9ef";
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(cx - 8, y + h - 20, 16, 12);
     ctx.globalAlpha = 1;
   }
 
   function drawDrone(o) {
     const { cx, cy } = o;
+    ctx.fillStyle = "rgba(0,0,0,0.18)";                         // shadow on the water
+    ctx.beginPath(); ctx.ellipse(cx + 8, cy + 10, 20, 14, 0, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = "#7a3550";
     ctx.lineWidth = 4;
     ctx.beginPath();
@@ -412,9 +654,9 @@
     ctx.moveTo(cx + 16, cy - 16); ctx.lineTo(cx - 16, cy + 16);
     ctx.stroke();
     for (const [dx, dy] of [[-16, -16], [16, -16], [-16, 16], [16, 16]]) {
-      ctx.fillStyle = "rgba(200,210,235,0.35)";
+      ctx.fillStyle = "rgba(220,230,245,0.4)";
       ctx.beginPath(); ctx.arc(cx + dx, cy + dy, 8, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = "#dfe5f5"; ctx.lineWidth = 2;
+      ctx.strokeStyle = "#eef2f8"; ctx.lineWidth = 2;
       const a = o.spin;
       ctx.beginPath();
       ctx.moveTo(cx + dx - Math.cos(a) * 8, cy + dy - Math.sin(a) * 8);
@@ -427,48 +669,36 @@
     ctx.beginPath(); ctx.arc(cx, cy, 4, 0, Math.PI * 2); ctx.fill();
   }
 
-  // Airplane seen from above, flying down toward the player
   function drawPlane(o) {
     const { cx, cy } = o;
+    ctx.fillStyle = "rgba(0,0,0,0.18)";
+    ctx.beginPath(); ctx.ellipse(cx + 14, cy + 18, 60, 10, 0, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = "#c8ced9";
-    // wings
     ctx.beginPath();
     ctx.moveTo(cx, cy - 6);
-    ctx.lineTo(cx + 70, cy - 14);
-    ctx.lineTo(cx + 70, cy - 4);
-    ctx.lineTo(cx + 10, cy + 14);
-    ctx.lineTo(cx - 10, cy + 14);
-    ctx.lineTo(cx - 70, cy - 4);
-    ctx.lineTo(cx - 70, cy - 14);
-    ctx.closePath();
-    ctx.fill();
-    // tail
+    ctx.lineTo(cx + 70, cy - 14); ctx.lineTo(cx + 70, cy - 4);
+    ctx.lineTo(cx + 10, cy + 14); ctx.lineTo(cx - 10, cy + 14);
+    ctx.lineTo(cx - 70, cy - 4); ctx.lineTo(cx - 70, cy - 14);
+    ctx.closePath(); ctx.fill();
     ctx.beginPath();
     ctx.moveTo(cx, cy - 30);
-    ctx.lineTo(cx + 22, cy - 38);
-    ctx.lineTo(cx + 22, cy - 32);
-    ctx.lineTo(cx - 22, cy - 32);
-    ctx.lineTo(cx - 22, cy - 38);
-    ctx.closePath();
-    ctx.fill();
-    // body
+    ctx.lineTo(cx + 22, cy - 38); ctx.lineTo(cx + 22, cy - 32);
+    ctx.lineTo(cx - 22, cy - 32); ctx.lineTo(cx - 22, cy - 38);
+    ctx.closePath(); ctx.fill();
     ctx.fillStyle = "#e9edf5";
-    ctx.beginPath();
-    ctx.ellipse(cx, cy, 8, 38, 0, 0, Math.PI * 2);
-    ctx.fill();
-    // engines
+    ctx.beginPath(); ctx.ellipse(cx, cy, 8, 38, 0, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = "#8a93a8";
     ctx.fillRect(cx - 34, cy - 6, 8, 16);
     ctx.fillRect(cx + 26, cy - 6, 8, 16);
-    // cockpit
     ctx.fillStyle = "#3b4b7a";
     ctx.beginPath(); ctx.ellipse(cx, cy + 26, 4, 6, 0, 0, Math.PI * 2); ctx.fill();
   }
 
-  // Missile pointing down, flame behind it
   function drawMissile(o, t) {
-    const { cx, cy } = o, h = TYPES.missile.h;
+    const { cx, cy } = o, h = TYPES.M.h;
     const top = cy - h / 2;
+    ctx.fillStyle = "rgba(0,0,0,0.18)";
+    ctx.fillRect(cx + 6, top + 10, 8, h - 10);
     ctx.fillStyle = "#ffb347";
     ctx.beginPath();
     ctx.moveTo(cx - 5, top + 4);
@@ -479,9 +709,7 @@
     ctx.fillRect(cx - 6, top + 4, 12, h - 20);
     ctx.fillStyle = "#e63946";
     ctx.beginPath();
-    ctx.moveTo(cx - 6, top + h - 16);
-    ctx.lineTo(cx, top + h);
-    ctx.lineTo(cx + 6, top + h - 16);
+    ctx.moveTo(cx - 6, top + h - 16); ctx.lineTo(cx, top + h); ctx.lineTo(cx + 6, top + h - 16);
     ctx.fill();
     ctx.fillStyle = "#6c7486";
     ctx.beginPath();
@@ -490,26 +718,20 @@
     ctx.fill();
   }
 
-  // A sneaker, tumbling. Just for fun.
   function drawShoe(o) {
     ctx.save();
     ctx.translate(o.cx, o.cy);
     ctx.rotate(o.spin);
-    ctx.fillStyle = "#f2f2f2";                       // sole
+    ctx.fillStyle = "#f2f2f2";
+    ctx.beginPath(); ctx.roundRect(-24, 6, 48, 8, 4); ctx.fill();
+    ctx.fillStyle = "#ff6b35";
     ctx.beginPath();
-    ctx.roundRect(-24, 6, 48, 8, 4);
-    ctx.fill();
-    ctx.fillStyle = "#ff6b35";                       // upper
-    ctx.beginPath();
-    ctx.moveTo(-22, 6);
-    ctx.lineTo(-22, -12);
+    ctx.moveTo(-22, 6); ctx.lineTo(-22, -12);
     ctx.quadraticCurveTo(-18, -16, -10, -14);
     ctx.lineTo(-4, -4);
     ctx.quadraticCurveTo(14, -6, 24, 6);
-    ctx.closePath();
-    ctx.fill();
-    ctx.strokeStyle = "#ffffff";                     // laces
-    ctx.lineWidth = 2;
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(-8, -9); ctx.lineTo(-2, -2);
     ctx.moveTo(-2, -10); ctx.lineTo(4, -3);
@@ -518,67 +740,75 @@
   }
 
   function drawObjects(t) {
-    for (const o of g.objects) {
-      if (o.type === "drone") drawDrone(o);
-      else if (o.type === "plane") drawPlane(o);
-      else if (o.type === "missile") drawMissile(o, t);
+    for (const w of g.waves) for (const o of w.objects) {
+      if (o.type === "D") drawDrone(o);
+      else if (o.type === "P") drawPlane(o);
+      else if (o.type === "M") drawMissile(o, t);
       else drawShoe(o);
     }
   }
 
   function drawHud() {
-    ctx.fillStyle = "#e8ecff";
-    ctx.font = "bold 32px system-ui, sans-serif";
+    ctx.fillStyle = "rgba(3,30,44,0.55)";
+    ctx.fillRect(0, 0, W, 46);
+    ctx.fillStyle = "#eaf6ff";
+    ctx.font = "bold 28px system-ui, sans-serif";
     ctx.textAlign = "center";
-    ctx.fillText(String(g.score), W / 2, 44);
+    ctx.fillText(String(g.score), W / 2, 34);
 
     ctx.textAlign = "left";
     ctx.font = "bold 14px system-ui, sans-serif";
-    ctx.fillStyle = "#9aa4c7";
-    ctx.fillText("HULL", 16, 30);
+    ctx.fillStyle = "#9fc3d6";
+    ctx.fillText("HULL", 14, 29);
     for (let i = 0; i < SETTINGS.hull; i++) {
-      ctx.fillStyle = i < g.hull ? "#7cf29c" : "#2a3358";
-      ctx.fillRect(60 + i * 22, 18, 16, 14);
+      ctx.fillStyle = i < g.hull ? "#7cf29c" : "#1b4a5e";
+      ctx.fillRect(58 + i * 20, 17, 15, 14);
     }
+    ctx.textAlign = "right";
+    ctx.fillStyle = "#9fc3d6";
+    ctx.fillText(`LEVEL ${g.level + 1}/${LEVELS.length}`, W - 14, 29);
 
-    if (g.fasterTimer > 0) {
-      ctx.globalAlpha = Math.min(1, g.fasterTimer * 2);
-      ctx.fillStyle = "#ffcc4d";
-      ctx.font = "bold 36px system-ui, sans-serif";
+    if (state === "playing" && g.bannerTimer > 0) {
+      const a = Math.min(1, g.bannerTimer * 1.5);
       ctx.textAlign = "center";
-      ctx.fillText("Faster!", W / 2, 100);
-      ctx.globalAlpha = 1;
-    }
-    if (state === "playing" && g.time < 3) {
-      ctx.textAlign = "center";
-      ctx.font = "16px system-ui, sans-serif";
-      ctx.fillStyle = "rgba(232,236,255," + Math.min(1, 3 - g.time) + ")";
-      ctx.fillText("Hold ← / → to steer", W / 2, H - 14);
+      ctx.fillStyle = `rgba(255,209,102,${a})`;
+      ctx.font = "bold 30px system-ui, sans-serif";
+      ctx.fillText(`Level ${g.level + 1}`, W / 2, 160);
+      ctx.fillStyle = `rgba(234,246,255,${a})`;
+      ctx.font = "20px system-ui, sans-serif";
+      ctx.fillText(LEVELS[g.level].name, W / 2, 190);
+      if (g.level === 0) {
+        ctx.font = "15px system-ui, sans-serif";
+        ctx.fillText("Arrow keys to steer · touch to move on a phone", W / 2, 220);
+      }
     }
   }
 
   function drawBanner(text, sub) {
-    ctx.fillStyle = "rgba(5,7,15,0.6)";
+    ctx.fillStyle = "rgba(3,30,44,0.6)";
     ctx.fillRect(0, 0, W, H);
     ctx.textAlign = "center";
-    ctx.fillStyle = "#e8ecff";
-    ctx.font = "bold 42px system-ui, sans-serif";
+    ctx.fillStyle = "#eaf6ff";
+    ctx.font = "bold 38px system-ui, sans-serif";
     ctx.fillText(text, W / 2, H / 2);
     if (sub) {
       ctx.font = "18px system-ui, sans-serif";
-      ctx.fillStyle = "#9aa4c7";
+      ctx.fillStyle = "#9fc3d6";
       ctx.fillText(sub, W / 2, H / 2 + 36);
     }
   }
 
   function draw(t) {
-    drawStars(t);
+    drawSea();
     if (!g) return;
+    drawWake();
+    drawShip(g.x, g.y, g.safeTimer > 0 || state === "sunk", t);
     drawObjects(t);
-    drawDestroyer(g.x, SHIP.y, g.safeTimer > 0 || state === "destroyed", t);
     drawHud();
     if (state === "paused") drawBanner("Paused", "Tap or press Space to continue");
-    if (state === "destroyed") drawBanner("Destroyed!", "Score: " + g.score);
+    if (state === "levelclear") drawBanner(`Level ${g.level + 1} cleared!`, `Next: ${LEVELS[g.level + 1].name}`);
+    if (state === "won") drawBanner("All levels cleared!", "Score: " + g.score);
+    if (state === "sunk") drawBanner("Sunk!", "Score: " + g.score);
   }
 
   // ---------- Main loop (fixed steps, one loop for the whole page) ----------
@@ -588,10 +818,10 @@
   function frame(now) {
     let dt = (now - lastTime) / 1000;
     lastTime = now;
-    if (dt > 0.1) dt = 0.1;        // after a long gap, never jump ahead
-    if (state === "playing" || state === "destroyed") {
+    if (dt > 0.1) dt = 0.1;                // after a long gap, never jump ahead
+    if (state !== "menu" && state !== "paused") {
       acc += dt;
-      while (acc >= STEP) { step(STEP); acc -= STEP; }
+      while (acc >= STEP && state !== "menu") { step(STEP); acc -= STEP; }
     } else {
       acc = 0;
     }
@@ -601,19 +831,23 @@
   }
 
   // ---------- Controls ----------
-  const LEFT_KEYS = ["ArrowLeft", "KeyA"];
-  const RIGHT_KEYS = ["ArrowRight", "KeyD"];
+  const KEYS = {
+    ArrowLeft: "left", KeyA: "left",
+    ArrowRight: "right", KeyD: "right",
+    ArrowUp: "up", KeyW: "up",
+    ArrowDown: "down", KeyS: "down"
+  };
 
   window.addEventListener("keydown", (e) => {
-    const isLeft = LEFT_KEYS.includes(e.code), isRight = RIGHT_KEYS.includes(e.code);
+    const dir = KEYS[e.code];
     const isStart = e.code === "Space" || e.key === "Enter";
-    if (!isLeft && !isRight && !isStart) return;
+    if (!dir && !isStart) return;
 
     if (state === "menu") {
       if (!isStart) return;
       e.preventDefault();
       if (e.repeat) return;
-      if (performance.now() - menuOpenedAt < 400) return; // avoid accidental restart
+      if (performance.now() - menuOpenedAt < 400) return;     // avoid accidental restart
       startGame();
       return;
     }
@@ -622,32 +856,31 @@
       if (!e.repeat) state = "playing";
       if (isStart) return;
     }
-    if (isLeft) input.left = true;
-    if (isRight) input.right = true;
+    if (dir) input[dir] = true;
   });
 
   window.addEventListener("keyup", (e) => {
-    if (LEFT_KEYS.includes(e.code)) input.left = false;
-    if (RIGHT_KEYS.includes(e.code)) input.right = false;
+    const dir = KEYS[e.code];
+    if (dir) input[dir] = false;
   });
 
-  // Touch / mouse: hold the left half to go left, the right half to go right
-  function touchDirection(e) {
+  // Touch / mouse: the ship heads toward where you hold your finger
+  function toCanvas(e) {
     const r = canvas.getBoundingClientRect();
-    return (e.clientX - r.left) < r.width / 2 ? -1 : 1;
+    return { x: (e.clientX - r.left) * W / r.width, y: (e.clientY - r.top) * H / r.height };
   }
   canvas.addEventListener("pointerdown", (e) => {
     e.preventDefault();
     if (state === "paused") { state = "playing"; return; }
     if (state !== "playing") return;
     canvas.setPointerCapture?.(e.pointerId);
-    input.touch = touchDirection(e);
+    input.target = toCanvas(e);
   });
   canvas.addEventListener("pointermove", (e) => {
-    if (input.touch !== 0) input.touch = touchDirection(e);
+    if (input.target) input.target = toCanvas(e);
   });
   for (const ev of ["pointerup", "pointercancel"]) {
-    canvas.addEventListener(ev, () => { input.touch = 0; });
+    canvas.addEventListener(ev, () => { input.target = null; });
   }
 
   newGameBtn.addEventListener("click", () => { if (state === "menu") startGame(); });
@@ -659,20 +892,22 @@
     get state() { return state; },
     get score() { return g ? g.score : 0; },
     get hull() { return g ? g.hull : SETTINGS.hull; },
-    get speed() { return g ? g.speed : SETTINGS.startSpeed; },
+    get level() { return g ? g.level : 0; },
+    get speed() { return g ? g.speed : 0; },
     get x() { return g ? g.x : 0; },
+    get y() { return g ? g.y : 0; },
+    get nextWave() { return g ? g.nextWave : 0; },
+    get waves() {
+      return g ? g.waves.map(w => ({ index: w.index, passed: w.passed, objects: w.objects.map(o => ({ type: o.type, cx: o.cx, cy: o.cy })) })) : [];
+    },
     get lastScore() { return lastScore; },
     get topScore() { return topScore; },
-    get waves() {
-      return g ? g.waves.map(w => ({
-        passed: w.passed, safeLane: w.safeLane,
-        objects: w.objects.map(o => ({ type: o.type, cx: o.cx, cy: o.cy }))
-      })) : [];
-    },
-    laneWidth: LANE, shipY: SHIP.y, shipW: SHIP.w, shipH: SHIP.h
+    levelChecks: LEVEL_CHECKS,
+    levels: LEVELS,
+    lane: LANE, ship: SHIP
   };
 
-  showMenu(false);
+  showMenu("");
   requestAnimationFrame(frame);
 })();
 </script>

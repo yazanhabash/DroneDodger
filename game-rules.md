@@ -1,94 +1,113 @@
 # Game rules: Drone Dodger
 
-**Version:** rules v4, 2026-10-19 (matches brief v5: per-object speeds)
+**Version:** rules v5, 2026-10-20 (matches brief v6: sea, 4-way movement, 3-hit hull, preset levels)
 
 ## Goal (one sentence)
 
-Steer your destroyer through the openings in each falling wave for as long as you can. The second hit ends the round.
+Steer your warship through every wave of all three levels before your hull takes its third hit.
 
 ## How to play (shown on the start screen)
 
 1. Press **New game**.
-2. Hold **←** or **→** to steer. On a phone, hold the left or right side of the screen.
-3. Let each wave pass through an opening. Each wave is worth 1 point.
-4. You can survive one hit. The second ends the round.
+2. Steer with the **arrow keys**. On a phone, touch and hold where you want to go.
+3. Slip through the gaps. Each wave you pass is worth 1 point.
+4. Your hull takes 2 hits. The 3rd sinks you. Clear every level to win.
 
 ## What the player can do
 
 | Action | Laptop | Phone/tablet | Effect |
 | --- | --- | --- | --- |
-| Steer left | Hold ← (or A) | Hold the left half of the game area | Moves left at a steady speed while held |
-| Steer right | Hold → (or D) | Hold the right half of the game area | Moves right at a steady speed while held |
-| Nothing held | — | — | The destroyer stays where it is |
-| New game | Click the button, or press Enter or Space | Tap the button | Starts a fresh round |
-| Resume after a pause | Space, ← / →, or click | Tap | Continues the paused round |
+| Steer | Hold ↑ ↓ ← → (or W A S D); two keys move diagonally | Touch and hold a spot | Moves at a steady speed toward that direction or spot |
+| Nothing held | — | — | The ship stays where it is |
+| New game | Button, Enter or Space | Tap the button | Starts at level 1 |
+| Resume after a pause | Space, an arrow key, or click | Tap | Continues from where it stopped |
 
-The game only listens to ← → A D, Space and Enter. Switching tabs or windows releases any held key.
+## Level design (how levels are written)
 
-## Waves
+Levels live at the top of `index.html`, under the heading **LEVELS — edit these to design the game**.
 
-- The screen has 6 lanes. A new wave appears at a fixed distance behind the last one.
-- Each wave has one **open lane**. The open lane moves at most 2 lanes from the previous one, and every lane in between is also left empty in the new wave. This guarantees a reachable route.
-- The other lanes are usually filled with a random mix: drones, missiles, shoes, and airplanes (an airplane takes two neighbouring lanes).
-- Every wave has at least one object.
-- **Speeds:** drones and shoes fall at 1×, airplanes at 1.5× and missiles at 2×. Faster objects start higher up, off-screen, so all of a wave's objects reach the destroyer's row at the same moment. That keeps the open route reachable.
+```
+{
+  name: "Calm Waters",
+  speed: 140,      // bigger = faster
+  spacing: 300,    // distance between waves; bigger = more reaction time
+  waves: [
+    "D....D",
+    ".D..D.",
+    "......",      // a breather row
+    ...
+  ]
+}
+```
 
-## Collisions
+Each wave is exactly 6 characters, one per lane from left to right:
 
-- A hit happens when the destroyer's body overlaps an object. Hit boxes are a little smaller than the drawings so near-misses feel fair.
-- **First hit:** the hull goes 2 → 1 and the destroyer flashes for about 1.5 seconds. It can't be hit while flashing.
-- **Second hit** (after the flashing stops): the round ends.
-- The left and right edges stop the destroyer and never cause damage.
+| Letter | Meaning |
+| --- | --- |
+| `D` | Drone (1×) |
+| `S` | Shoe (1×) |
+| `PP` | Airplane, always two letters side by side (1.5×) |
+| `M` | Missile (2×) |
+| `.` | Open water |
 
-## Score and speed
+**Way-out rule (checked automatically):** you must be able to get from an open lane in one wave to an open lane in the next. The lanes you cross must be open in the next wave, and the ship must have time to cross them. The checker prints any wave that breaks this rule in the browser console.
 
-- A wave scores **+1** once every object in it is fully below the destroyer. Each wave scores exactly once.
-- At 10, 20, 30… points, falling speed rises about 10%, up to a maximum (about double the starting speed). "Faster!" shows for about a second.
+## Collisions and hull
+
+- A hit happens when the ship's body overlaps an object. Hit boxes are slightly smaller than the drawings.
+- Each hit takes 1 hull point and makes the ship flash for 1.5 seconds. While it flashes, it can't be hit again.
+- The **third hit** sinks the ship and ends the game.
+- The sea edges and the score bar stop the ship and never cause damage.
+
+## Score
+
+- +1 when every object in a wave is below the ship, once per wave. Breather rows don't score.
+- The maximum score with the current three levels is 50.
 
 ## Screens (states)
 
-| State | What you see | Moving? | Score advancing? |
-| --- | --- | --- | --- |
-| **Start screen** | Title, instructions, last score, top score, New game | No | No |
-| **Playing** | Destroyer, falling waves, score, hull | Yes | Yes |
-| **Paused** (you switched tabs or windows) | "Paused. Tap or press Space to continue." | No | No |
-| **Destroyed** (about 1 second) | "Destroyed!" and the score | No | No |
+| State | What you see | Moving? |
+| --- | --- | --- |
+| **Start screen** | Instructions, last score, top score, New game | No |
+| **Playing** | Ship, wake, waves, score, hull (3 boxes), level number. The level name shows for 2 seconds at the start | Yes |
+| **Paused** (tab or window switched) | "Paused. Tap or press Space to continue." | No |
+| **Level cleared** (about 2 seconds) | "Level N cleared!" and the next level's name | Sea only |
+| **Sunk** / **All levels cleared** (about 1 second) | Banner and score | Sea only |
 
 ## Transition table
 
-| From | Action / event | Result |
+| From | Event | Result |
 | --- | --- | --- |
-| Page opens | — | Start screen with saved last and top scores (0 if none) |
-| Start screen | New game | Playing. Score 0, hull 2, starting speed, destroyer centred and still, first wave after a short calm moment |
-| Playing | Hold ← / → (or touch) | Destroyer moves; it stops when released |
-| Playing | A wave passes fully below the destroyer | Score +1 |
-| Playing | Score reaches 10, 20, 30… | Faster (until the maximum), "Faster!" |
-| Playing | Hit, hull 2, not flashing | Hull 1, flashing starts, play continues |
-| Playing | Touch while flashing | Nothing happens |
-| Playing | Hit, hull 1, not flashing | Destroyed |
-| Playing | Tab hidden or window switched | Paused |
-| Paused | Space, arrow or tap | Playing again from exactly where it stopped |
-| Destroyed | After about 1 second | Start screen. The last score is updated; the top score is updated if beaten, and "New top score!" shows |
+| Start screen | New game | Level 1. Score 0, hull 3, ship centred near the bottom |
+| Playing | Steer | Ship moves; stops when released |
+| Playing | A wave passes the ship | +1 |
+| Playing | Hit, hull above 1, not flashing | Hull −1, flashing, play continues |
+| Playing | Hit, hull 1, not flashing | Sunk |
+| Playing | Last wave of a level has left the screen | Level cleared, or All levels cleared after level 3 |
+| Level cleared | After about 2 seconds | Next level starts. Score, hull and position carry over |
+| Sunk / All cleared | After about 1 second | Start screen. Last and top scores are updated and saved |
+| Playing | Tab or window switched | Paused |
+| Paused | Space, arrow key or tap | Playing |
 
-## What's kept vs reset between rounds
+## Kept vs reset
 
-| Kept | Reset |
+| Kept between games | Reset each new game |
 | --- | --- |
-| Last score, top score (saved on this device) | Score, hull, speed, all falling objects, destroyer position, flashing, pause, messages |
+| Last score, top score | Level, score, hull, ship position, waves, flashing, wake |
 
 ## Partner test cases
 
-Record Passed, Failed, or Not tested for each.
+Record Passed, Failed, or Not tested.
 
-1. Open the page. Are the last and top scores shown, and is nothing moving? Press New game. Is the destroyer centred and still?
-2. Hold ←, then →. Does it move each way and stop when you let go? Does it stop at the side edges without losing hull?
-3. Let one wave pass. Does the score show exactly 1?
-4. Steer into an object. Is the hull 1, does the destroyer flash, and does the game continue?
-5. Get hit again after the flashing stops. Does "Destroyed!" appear, then the start screen with that score?
-6. Reach 10 points. Does "Faster!" appear, and do objects fall faster?
-7. Over a couple of rounds, do you see drones, airplanes, missiles and shoes? Do missiles look fastest, planes faster than drones, and drones and shoes slowest?
-8. Is there always an opening you can reach, including after 20+ points?
-9. Switch to another tab for 10 seconds and come back. Is it paused, and does it continue safely?
-10. Play three rounds in a row. Does each start fresh and at normal speed?
-11. Reload the page. Are the last and top scores still there?
-12. On a phone: does holding the left or right side steer, and does letting go stop it?
+1. Start screen shows the last and top scores. Does New game start *Calm Waters*, with 3 green hull boxes?
+2. Do all four arrow keys move the ship, and does letting go stop it? Do two keys together move it diagonally?
+3. Does the ship stop at every edge and at the score bar without damage?
+4. After the first wave passes, is the score exactly 1?
+5. Get hit once and then twice. Does the hull drop each time, with flashing and play continuing?
+6. Does the third hit show "Sunk!" and then the start screen with your score?
+7. Clear level 1. Does "Level 1 cleared!" show, followed by *Air Patrol*?
+8. Is there always a reachable opening in every level?
+9. Clear all three levels. Does "All levels cleared!" show, and does the start screen say "You cleared all 3 levels!"?
+10. Switch tabs mid-level and come back. Is it paused, and does it resume safely?
+11. Play three games in a row. Does each start fresh at level 1?
+12. On a phone: does the ship head toward your finger and stop when you let go?

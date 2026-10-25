@@ -1,89 +1,86 @@
 # Game brief: Drone Dodger
 
 **Project:** DroneDodger (separate from the website and from the course materials)
-**Version:** brief v5, 2026-10-19
+**Version:** brief v6, 2026-10-20
 
 **History:**
 - v1: tap to climb, like Flappy Bird.
 - v2: added a start screen with last score and top score, and a 2-hit hull.
 - v3: steady Up/Down movement with no gravity.
-- v4: redesigned as a top-down game. Objects fall from the top, you steer left and right, there are four object types, and there is always a way out.
+- v4: redesigned as a top-down game with four object types and always a way out.
 - v5: each object type falls at its own speed.
+- v6: set at sea with a warship, free movement in all four directions, a 3-hit hull, and hand-designed levels instead of random waves.
 
 ## Concept
 
-Your destroyer is at the bottom of the screen. Waves of drones, airplanes, ballistic missiles and the odd flying shoe fall toward you. Steer left and right through the openings, survive one hit, and see how far you get before everything speeds up.
+You command a warship at sea. Drones, airplanes, ballistic missiles and the odd flying shoe come at you in hand-designed waves. Steer through the gaps and clear every level before your hull gives out.
 
 ## Intended player
 
-Anyone with a laptop or phone. Rounds last from under a minute to a few minutes.
+Anyone with a laptop or phone. A full run through all three levels takes about 4 minutes.
 
 ## Main action
 
-**Steer left or right.** The destroyer stays put until you hold a direction, then moves at a steady speed. It can't move up or down.
+**Steer in any direction.** The ship stays put until you steer, then moves at a steady speed. It leaves a foamy wake behind it.
 
 ## Controls
 
 | Device | Steer | New game |
 | --- | --- | --- |
-| Laptop | Hold **← / →** (A / D also work) | Click the button, or press Enter or Space |
-| Phone/tablet | Hold the left or right half of the game area | Tap the button |
+| Laptop | Hold the **arrow keys** (W A S D also work). Two keys together move diagonally. | Click the button, or press Enter or Space |
+| Phone/tablet | Touch and hold where you want the ship to go | Tap the button |
 
-Let go and the destroyer stops.
+Let go and the ship stops.
 
-## Falling objects
+## Objects
 
-| Object | Look | Size | Falling speed |
+| Object | Letter in the level design | Size | Speed |
 | --- | --- | --- | --- |
-| Drone | Four-rotor drone with a red eye | Medium | 1× (slowest) |
-| Shoe | A tumbling sneaker, just for fun | Medium | 1× (same as a drone) |
-| Airplane | Plane seen from above | Wide (two lanes) | 1.5× |
-| Ballistic missile | Thin missile with a flame trail | Narrow and tall | 2× (fastest) |
+| Drone | D | Medium | 1× (slowest) |
+| Shoe | S | Medium | 1× |
+| Airplane | PP | Wide (two lanes) | 1.5× |
+| Ballistic missile | M | Narrow and tall | 2× (fastest) |
 
-Faster objects start higher up, off-screen, so every object in a wave still reaches your ship's row together. Missiles and planes appear later and catch up with the drones in their wave.
+Faster objects start further away, so every object in a wave reaches the ship's starting row together.
 
-## Waves and the way out
+## Levels
 
-- The screen is split into 6 invisible lanes.
-- Each wave is a row of mixed objects, slightly staggered.
-- **Every wave has an open lane**, and the route to it from the previous wave's opening is kept clear. That means there is always a path you can reach in time, even at top speed.
+- The game has **3 levels**, played in order: *Calm Waters*, *Air Patrol* and *Missile Storm*.
+- Each level is a fixed list of waves written as 6-letter rows, one letter per lane, for example `D..M.D`. The same level plays the same way every time.
+- Each level sets its own **speed** and its own **spacing** between waves. Later levels are faster.
+- A **level checker** runs when the game loads. It confirms every wave has a reachable way out and lists any problem waves in the browser console.
+- Clearing a level shows "Level N cleared!", then the next level starts. Your score, hull and position carry over.
+- Clearing level 3 wins the game.
 
 ## A round
 
-1. **Start screen** (shown when the page opens and after every round): title, short instructions, **last score**, **top score**, and a **New game** button. Nothing moves until you press New game.
-2. **Play:** waves fall from the top. Steer through the openings.
-3. **Hits:** the destroyer has **2 hull points**, shown on screen.
-   - **First hit:** you survive. The hull drops to 1, and the destroyer flashes. For about 1.5 seconds you can't be hit again.
-   - **Second hit:** "Destroyed!", then back to the start screen.
-4. **Side edges** stop the destroyer like walls and don't damage it.
-5. **Round over:** the start screen shows this round's score as the last score, and "New top score!" if you beat it.
-6. **New game:** a completely fresh round. Score 0, hull 2, starting speed, no objects on screen, destroyer in the middle.
+1. **Start screen:** title, short instructions, **last score**, **top score**, and **New game**.
+2. **Play:** each level opens with its name, then the waves arrive.
+3. **Hits:** the hull has **3 points**. Each hit takes one, and the ship flashes for 1.5 seconds with no further damage. The **third hit sinks the ship**, and the game is over.
+4. **Edges:** the edges of the sea and the score bar stop the ship and never cause damage.
+5. **End:** "Sunk!" or "All levels cleared!", then the start screen with the last score and messages such as "New top score!" or "You cleared all 3 levels!"
 
-## Scoring and speed
+## Scoring
 
-- **+1 point** for each wave that gets completely past you, counted once, even if it hit you.
-- At **10, 20, 30… points**, everything falls about 10% faster, up to a maximum. Each type keeps its speed ratio. "Faster!" flashes when this happens.
+- **+1 point** for each wave that gets fully past your ship, counted once. Breather rows don't score.
+- A perfect run through all three levels scores **50**.
 
 ## Last score and top score
 
-- Saved in this browser on this device. They are still there after you close and reopen the page.
-- They are not shared with other people or devices. This is not an online leaderboard.
-- If the browser blocks saving (for example, in a private window), the game still works. The scores just won't be remembered.
+Saved in this browser on this device. They are not shared and not online. If the browser blocks saving, the game still plays.
 
-## Look (first version)
+## Not in this version (later list)
 
-Simple shapes drawn by the game itself: a starfield, a grey destroyer seen from above, and the four object types. No sound, no downloaded images, no external libraries.
+Sound, shooting back, power-ups, hull repair, more levels, a level editor screen, choosing a level from the menu, online leaderboard, and accounts.
 
-## Not in the first version (later list)
+## Note on the speed-up rule
 
-Sound, shooting back, power-ups, hull repair, objects with different speeds or zig-zag paths, levels, online leaderboard, accounts, multiplayer, and purchases.
+The earlier "10% faster every 10 points" rule is replaced by per-level speeds, since each level now has a set speed. It can be brought back on top of the level speeds if wanted.
 
 ## Five completion checks
 
-Record each one as Passed, Failed, or Not tested.
-
-1. **Start screen and controls:** Open the page. You see the last score, top score and New game, and nothing moves. After New game, the destroyer stays still with no keys pressed. Holding ← or → moves it, and letting go stops it.
-2. **Score once:** Let one wave get past you. The score goes from 0 to exactly 1.
-3. **Two hits:** Steer into an object. The hull drops to 1, the destroyer flashes, and the game continues. Get hit again after the flashing stops. "Destroyed!" appears, then the start screen shows that score as the last score.
-4. **Speed-up:** Reach 10 points. "Faster!" appears, and objects visibly fall faster.
-5. **Replay, saved scores and variety:** Play three rounds in a row. Each starts fresh and at normal speed. You see all four object types. There is always an opening you can reach. Reload the page, and the last and top scores are still there.
+1. **Start and steering:** the start screen shows the last and top scores. After New game, the ship stays still, and the arrow keys move it up, down, left and right. Letting go stops it.
+2. **Score once:** after the first wave passes, the score is exactly 1.
+3. **Three hits:** the hull goes from 3 to 2 to 1 while play continues. The third hit shows "Sunk!" and returns to the start screen with that score.
+4. **Levels:** clearing level 1 shows "Level 1 cleared!" and starts *Air Patrol*. Clearing level 3 shows "All levels cleared!"
+5. **Fair levels and replay:** every wave has an opening you can reach. Three replays each start fresh at level 1. Reloading keeps the last and top scores.
