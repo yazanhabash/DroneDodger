@@ -6,7 +6,7 @@
 <title>Drone Dodger</title>
 <style>
   :root {
-    --bg: #04202e;
+    --bg: #0b3448;
     --panel: rgba(4, 28, 42, 0.93);
     --text: #eaf6ff;
     --muted: #9fc3d6;
@@ -60,6 +60,7 @@
     max-width: 360px;
   }
   h1 { margin: 0 0 8px; font-size: clamp(24px, 6vw, 32px); letter-spacing: 1px; }
+  .ver { margin: -4px 0 10px; color: var(--muted); font-size: 12px; letter-spacing: 1px; text-transform: uppercase; }
   .how { margin: 0 0 14px; color: var(--muted); font-size: 14px; line-height: 1.5; }
   .how strong { color: var(--text); }
   .scores { display: flex; justify-content: center; gap: 28px; margin: 0 0 8px; }
@@ -87,9 +88,10 @@
   <div class="menu" id="menu">
     <div class="card">
       <h1>Drone Dodger</h1>
+      <p class="ver">Version 1.1</p>
       <p class="how">Drones, planes, missiles… and shoes are coming at your ship.<br>
         Steer with the <strong>arrow keys</strong>. On a phone, <strong>touch where you want to go</strong>.<br>
-        Your hull takes 2 hits. The 3rd sinks you. Clear every level to win.</p>
+        Your hull takes 2 hits. The 3rd sinks you. Survive as long as you can and beat your top score.</p>
       <div class="scores">
         <div>Last score<strong id="lastScore">0</strong></div>
         <div>Top score<strong id="topScore">0</strong></div>
@@ -103,195 +105,52 @@
 <script>
 (() => {
   // =====================================================================
-  //  LEVELS — edit these to design the game
+  //  ENDLESS MODE — tune these to change how the game ramps up
   // =====================================================================
-  //  Each level is a list of WAVES, played from top to bottom.
-  //  Each wave is exactly 6 characters, one per lane, left to right:
-  //
-  //     D = drone      (slowest, 1x)
-  //     S = shoe       (just for fun, 1x)
-  //     P = airplane   (1.5x) — always write it as a pair: "PP"
-  //     M = missile    (fastest, 2x)
-  //     . = open water (the ship can pass here)
-  //
-  //  A wave of only dots, "......", is a short breather.
-  //  speed   = how fast this level moves (bigger = faster)
-  //  spacing = distance between waves (bigger = more time to react)
-  //
-  //  Every wave needs a way out. The game checks this when it loads and
-  //  lists any problem waves in the browser console.
+  //  Waves keep coming forever. Each wave is built as a 6-lane row
+  //  (D = drone, S = shoe, PP = airplane, M = missile, . = open water),
+  //  and every new wave keeps a clear route from the last one's opening,
+  //  so there is always a way out.
   // =====================================================================
-  const LEVELS = [
-    {
-      name: "Calm Waters",
-      speed: 140,
-      spacing: 300,
-      waves: [
-        "D....D",
-        ".D..D.",
-        "DD....",
-        "DDD...",
-        "......",
-        "....DD",
-        "S..D.D",
-        "D.D...",
-        "D..D.S",
-        "DD..DD",
-        "DDD..D",
-        "DS..DD",
-        "D.D...",
-        "D...DD",
-        "DDD..D"
-      ]
-    },
-    {
-      name: "Air Patrol",
-      speed: 165,
-      spacing: 280,
-      waves: [
-        "PP....",
-        "...PP.",
-        "D....D",
-        "PP..PP",
-        "..D...",
-        "PP.D..",
-        "PPD...",
-        "D.PP..",
-        "......",
-        "PP.S.D",
-        "PP.D..",
-        "PPD...",
-        "PPDS..",
-        "S.PP.D",
-        "PP.D..",
-        "DD...D",
-        "PP.PP.",
-        ".D.D.D"
-      ]
-    },
-    {
-      name: "Missile Storm",
-      speed: 185,
-      spacing: 270,
-      waves: [
-        "M....M",
-        ".M..M.",
-        "MM....",
-        "...MMM",
-        "D.M.M.",
-        "M...PP",
-        "M.M..D",
-        ".MMM..",
-        "......",
-        "MM.PP.",
-        "MM.MM.",
-        "PPM...",
-        "PP.M..",
-        "M.SM.M",
-        ".MMM.D",
-        "PP.M..",
-        "MMPP..",
-        "MM.M..",
-        "MMMM..",
-        "MM.M.M"
-      ]
-    }
-  ];
+  const DIFFICULTY = {
+    startSpeed: 140,      // how fast things come at you at the start
+    speedUpEvery: 10,     // points between speed-ups
+    speedUpFactor: 1.08,  // +8% each time
+    maxSpeed: 280,        // never faster than this
+    spacing: 280,         // distance between waves
+    fillStart: 0.45,      // how crowded waves are at the start (0 to 1)
+    fillEnd: 0.85,        // how crowded they get
+    fillRampScore: 60,    // score at which waves reach full crowding
+    planesFrom: 10,       // airplanes join at this score
+    missilesFrom: 25,     // missiles join at this score
+    maxShift: 2           // the open lane moves at most this many lanes per wave
+  };
 
   // ---------- Game settings ----------
   const SETTINGS = {
     shipSpeed: 280,         // how fast the ship moves while steering (pixels per second)
     hull: 3,                // hits until the ship sinks (the last one ends the game)
     safeTime: 1.5,          // seconds of no damage after a hit
-    firstWaveDelay: 140,    // calm distance before a level's first wave
-    levelBannerTime: 2.2,
-    levelClearTime: 1.8,
+    firstWaveDelay: 140,    // calm distance before the first wave
+    introTime: 2.5,         // seconds the opening message shows
+    fasterMessageTime: 1.0,
     sunkPause: 1.2
   };
 
   const W = 480, H = 720, LANES = 6;
   const LANE = W / LANES;
-  const SHIP = { w: 38, h: 80, startY: H - 120 };
+  const SHIP = { w: 28, h: 108, startY: H - 140 };    // long, thin tanker
   const SHIP_ROW = SHIP.startY + SHIP.h / 2;   // wave objects all arrive at this row together
   const STORE_LAST = "droneDodger.lastScore";
   const STORE_TOP = "droneDodger.topScore";
 
   // Size of each drawing, its (slightly smaller) hit box, and speed vs a drone
   const TYPES = {
-    D: { name: "drone",   w: 46,  h: 46, hitW: 38,  hitH: 38, speed: 1 },
+    D: { name: "drone",   w: 51,  h: 51, hitW: 42,  hitH: 42, speed: 1 },     // 10% bigger in v1.1
     S: { name: "shoe",    w: 50,  h: 50, hitW: 34,  hitH: 34, speed: 1 },
-    P: { name: "plane",   w: 140, h: 76, hitW: 124, hitH: 40, speed: 1.5 },
+    P: { name: "plane",   w: 126, h: 68, hitW: 112, hitH: 36, speed: 1.5 },   // 10% smaller in v1.1
     M: { name: "missile", w: 20,  h: 70, hitW: 14,  hitH: 62, speed: 2 }
   };
-
-  // ---------- Level checker: every wave must have a reachable way out ----------
-  function checkLevel(level) {
-    const problems = [];
-    const waves = level.waves;
-    waves.forEach((w, i) => {
-      if (w.length !== LANES) problems.push(`wave ${i + 1} "${w}": needs exactly ${LANES} characters`);
-      if (/[^DSPM.]/.test(w)) problems.push(`wave ${i + 1} "${w}": only D S P M . are allowed`);
-      const pairs = w.replace(/PP/g, "");
-      if (pairs.includes("P")) problems.push(`wave ${i + 1} "${w}": planes must be written as a pair "PP"`);
-    });
-    if (problems.length) return { ok: false, problems, path: [] };
-
-    // Lanes the ship could be in safely, wave by wave (checked at the ship's start row)
-    let reachable = null, rests = 0;
-    const path = [];
-    const history = [];
-    for (let i = 0; i < waves.length; i++) {
-      const w = waves[i];
-      if (w === "......") { rests++; continue; }
-      const open = [...w].map(c => c === ".");
-      if (!open.includes(true)) {
-        problems.push(`wave ${i + 1} "${w}": no open lane at all`);
-        return { ok: false, problems, path: [] };
-      }
-      let next;
-      if (reachable === null) {
-        next = open.map(o => o);                       // first wave: plenty of time to get anywhere
-      } else {
-        // time from the previous wave clearing the ship until this wave's
-        // neighbour arrives, turned into how many lanes the ship can cross
-        const time = (2 * level.spacing * (1 + rests) - 160) / level.speed;
-        const reach = Math.max(1, Math.floor(0.7 * SETTINGS.shipSpeed * time / LANE));
-        next = open.map((o, j) => {
-          if (!o) return false;
-          for (let from = 0; from < LANES; from++) {
-            if (!reachable[from] || Math.abs(from - j) > reach) continue;
-            let clear = true;
-            for (let l = Math.min(from, j); l <= Math.max(from, j); l++) if (!open[l]) clear = false;
-            if (clear) return true;
-          }
-          return false;
-        });
-      }
-      if (!next.includes(true)) {
-        problems.push(`wave ${i + 1} "${w}": no way to reach an open lane from the wave before it`);
-        return { ok: false, problems, path: [] };
-      }
-      history.push({ index: i, ok: next });
-      reachable = next;
-      rests = 0;
-    }
-    // Pick one safe route (walk backwards so every step connects)
-    let lane = -1;
-    for (let k = history.length - 1; k >= 0; k--) {
-      const ok = history[k].ok;
-      if (lane < 0 || !ok[lane]) {
-        let best = -1;
-        for (let j = 0; j < LANES; j++) if (ok[j] && (best < 0 || Math.abs(j - lane) < Math.abs(best - lane))) best = j;
-        lane = best;
-      }
-      path[history[k].index] = lane;
-    }
-    return { ok: true, problems, path };
-  }
-  const LEVEL_CHECKS = LEVELS.map(checkLevel);
-  LEVEL_CHECKS.forEach((c, i) => {
-    if (!c.ok) console.warn(`Drone Dodger — Level ${i + 1} "${LEVELS[i].name}" needs fixing:\n` + c.problems.join("\n"));
-  });
 
   // ---------- Page elements ----------
   const canvas = document.getElementById("game");
@@ -325,47 +184,80 @@
     };
   }
   const seaRandom = makeRandom(11);
-  const foam = Array.from({ length: 60 }, () => ({
+  // short wave crests scattered over the surface
+  const crests = Array.from({ length: 90 }, () => ({
     x: seaRandom() * W, y: seaRandom() * H,
-    r: seaRandom() * 2.5 + 1, a: seaRandom() * 0.25 + 0.08
+    len: 10 + seaRandom() * 22, phase: seaRandom() * Math.PI * 2,
+    a: 0.18 + seaRandom() * 0.3
+  }));
+  const sparkles = Array.from({ length: 26 }, () => ({
+    x: seaRandom() * W, y: seaRandom() * H, phase: seaRandom() * Math.PI * 2
   }));
 
+  // ---------- Repeatable randomness (add ?seed=123 to the URL to test) ----------
+  const seedParam = new URLSearchParams(location.search).get("seed");
+  let random = makeRandom(seedParam ? Number(seedParam) : Date.now());
+
   // ---------- Game state ----------
-  // menu | playing | paused | levelclear | sunk | won
+  // menu | playing | paused | sunk
   let state = "menu";
   let menuOpenedAt = 0;
   let g = null;
 
   function newGameState() {
+    if (seedParam) random = makeRandom(Number(seedParam));
     return {
       x: W / 2 - SHIP.w / 2,
       y: SHIP.startY,
       score: 0,
       hull: SETTINGS.hull,
-      level: 0,
+      speed: DIFFICULTY.startSpeed,
+      waves: [],
+      waveCount: 0,
+      distanceToNext: SETTINGS.firstWaveDelay,
+      safeLane: random() < 0.5 ? 2 : 3,
       safeTimer: 0,
+      fasterTimer: 0,
+      introTimer: SETTINGS.introTime,
       timer: 0,
       wake: [],
       wakeClock: 0,
       seaScroll: 0,
-      ...newLevelState(0)
-    };
-  }
-
-  function newLevelState(levelIndex) {
-    return {
-      level: levelIndex,
-      speed: LEVELS[levelIndex].speed,
-      nextWave: 0,
-      distanceToNext: SETTINGS.firstWaveDelay,
-      waves: [],
-      bannerTimer: SETTINGS.levelBannerTime,
       time: 0
     };
   }
 
-  function spawnWave(text, index) {
-    const wave = { index, passed: false, objects: [] };
+  // Build the next wave as a 6-lane row, keeping a clear route to its opening
+  function makeWaveText() {
+    const d = DIFFICULTY;
+    const prev = g.safeLane;
+    const shift = Math.floor(random() * (d.maxShift * 2 + 1)) - d.maxShift;
+    const safe = Math.max(0, Math.min(LANES - 1, prev + shift));
+    g.safeLane = safe;
+
+    const row = new Array(LANES).fill(".");
+    const keepOpen = new Array(LANES).fill(false);
+    for (let l = Math.min(prev, safe); l <= Math.max(prev, safe); l++) keepOpen[l] = true;
+
+    const fill = d.fillStart + (d.fillEnd - d.fillStart) * Math.min(1, g.score / d.fillRampScore);
+    for (let lane = 0; lane < LANES; lane++) {
+      if (keepOpen[lane] || random() > fill) continue;
+      if (g.score >= d.planesFrom && lane + 1 < LANES && !keepOpen[lane + 1] && random() < 0.25) {
+        row[lane] = row[lane + 1] = "P"; lane++; continue;
+      }
+      const roll = random();
+      if (g.score >= d.missilesFrom && roll < 0.35) row[lane] = "M";
+      else row[lane] = roll < 0.85 ? "D" : "S";
+    }
+    if (!row.includes("D") && !row.includes("S") && !row.includes("P") && !row.includes("M")) {
+      const lane = keepOpen.indexOf(false);
+      if (lane >= 0) row[lane] = "D";
+    }
+    return { text: row.join(""), safe };
+  }
+
+  function spawnWave(text, index, safe) {
+    const wave = { index, safe, passed: false, objects: [] };
     const baseY = -60;
     for (let lane = 0; lane < LANES; lane++) {
       const c = text[lane];
@@ -407,29 +299,22 @@
     if (state === "playing") state = "paused";
   }
 
-  function finishGame(won) {
+  function finishGame() {
     lastScore = g.score;
     const beat = g.score > topScore;
     if (beat) topScore = g.score;
     saveNumber(STORE_LAST, lastScore);
     saveNumber(STORE_TOP, topScore);
-    const parts = [];
-    if (won) parts.push(`You cleared all ${LEVELS.length} levels!`);
-    if (beat) parts.push("New top score!");
-    showMenu(parts.join(" "));
+    showMenu(beat ? "New top score!" : "");
   }
 
   // ---------- Rules: one fixed step of the simulation ----------
   function step(dt) {
-    if (state === "sunk" || state === "won" || state === "levelclear") {
+    if (state === "sunk") {
       g.timer -= dt;
       g.seaScroll += 40 * dt;
       updateWake(dt, false);
-      if (g.timer > 0) return;
-      if (state === "sunk") return finishGame(false);
-      if (state === "won") return finishGame(true);
-      Object.assign(g, newLevelState(g.level + 1));      // next level; score, hull and position carry over
-      state = "playing";
+      if (g.timer <= 0) finishGame();
       return;
     }
     if (state !== "playing") return;
@@ -437,20 +322,19 @@
     g.time += dt;
     g.seaScroll += g.speed * 0.35 * dt;
     if (g.safeTimer > 0) g.safeTimer = Math.max(0, g.safeTimer - dt);
-    if (g.bannerTimer > 0) g.bannerTimer = Math.max(0, g.bannerTimer - dt);
+    if (g.introTimer > 0) g.introTimer = Math.max(0, g.introTimer - dt);
+    if (g.fasterTimer > 0) g.fasterTimer = Math.max(0, g.fasterTimer - dt);
 
     moveShip(dt);
     updateWake(dt, true);
 
-    // Bring in the next wave from the level preset
-    const level = LEVELS[g.level];
-    if (g.nextWave < level.waves.length) {
-      g.distanceToNext -= g.speed * dt;
-      if (g.distanceToNext <= 0) {
-        spawnWave(level.waves[g.nextWave], g.nextWave);
-        g.nextWave++;
-        g.distanceToNext += level.spacing;
-      }
+    // Bring in the next wave
+    g.distanceToNext -= g.speed * dt;
+    if (g.distanceToNext <= 0) {
+      const w = makeWaveText();
+      spawnWave(w.text, g.waveCount, w.safe);
+      g.waveCount++;
+      g.distanceToNext += DIFFICULTY.spacing;
     }
 
     // Move objects (each type at its own speed)
@@ -485,18 +369,21 @@
     for (const w of g.waves) {
       if (w.passed) continue;
       const lowestTop = Math.min(...w.objects.map(o => o.cy - TYPES[o.type].h / 2));
-      if (lowestTop > shipBottom) { w.passed = true; g.score += 1; }
+      if (lowestTop > shipBottom) {
+        w.passed = true;
+        g.score += 1;
+        if (g.score % DIFFICULTY.speedUpEvery === 0) {
+          const steps = g.score / DIFFICULTY.speedUpEvery;
+          const next = Math.min(DIFFICULTY.startSpeed * Math.pow(DIFFICULTY.speedUpFactor, steps), DIFFICULTY.maxSpeed);
+          if (next > g.speed) { g.speed = next; g.fasterTimer = SETTINGS.fasterMessageTime; }
+        }
+      }
     }
 
     // Remove objects that have left the screen, and empty waves
     for (const w of g.waves) w.objects = w.objects.filter(o => o.cy - 90 < H);
     g.waves = g.waves.filter(w => w.objects.length > 0);
 
-    // Level finished?
-    if (g.nextWave >= level.waves.length && g.waves.length === 0) {
-      if (g.level + 1 < LEVELS.length) { state = "levelclear"; g.timer = SETTINGS.levelClearTime; }
-      else { state = "won"; g.timer = SETTINGS.levelClearTime; }
-    }
   }
 
   function moveShip(dt) {
@@ -521,125 +408,140 @@
     g.y = Math.max(50, Math.min(H - SHIP.h, g.y));      // stay below the score bar
   }
 
-  // Foam wake behind the ship: a spreading V of foam with a few swirls
+  // Wake: remember where the stern has been; the water carries those points away
+  const WAKE_LIFE = 0.9;         // seconds a wake line lasts (shorter = shorter wake)
+  const WAKE_SPREAD = 70;        // how wide the V opens (bigger = wider wake)
   function updateWake(dt, emit) {
+    const flow = g.speed * 0.35;                       // same speed as the sea surface
     g.wakeClock += dt;
-    if (emit && g.wakeClock > 0.035) {
+    if (emit && g.wakeClock > 0.03) {
       g.wakeClock = 0;
-      const sternX = g.x + SHIP.w / 2, sternY = g.y + SHIP.h - 4;
-      for (const side of [-1, 1]) {
-        g.wake.push({ x: sternX + side * 7, y: sternY, age: 0, drift: side, swirl: false });
-      }
-      if (Math.random() < 0.25) {
-        g.wake.push({ x: sternX + (Math.random() - 0.5) * 8, y: sternY + 4, age: 0, drift: 0, swirl: true, turn: Math.random() * 6 });
-      }
+      g.wake.push({ x: g.x + SHIP.w / 2, y: g.y + SHIP.h - 6, age: 0 });
     }
-    for (const p of g.wake) {
-      p.age += dt;
-      p.y += 95 * dt;
-      p.x += p.drift * 34 * dt;
-    }
-    g.wake = g.wake.filter(p => p.age < 1.4);
+    for (const p of g.wake) { p.age += dt; p.y += flow * dt; }
+    g.wake = g.wake.filter(p => p.age < WAKE_LIFE);
   }
 
   // ---------- Drawing ----------
   function drawSea() {
+    // daylight surface colour
     const grad = ctx.createLinearGradient(0, 0, 0, H);
-    grad.addColorStop(0, "#0a5674");
-    grad.addColorStop(1, "#063a52");
+    grad.addColorStop(0, "#2f8fb8");
+    grad.addColorStop(1, "#22789f");
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, W, H);
 
     const scroll = g ? g.seaScroll : performance.now() / 1000 * 30;
-    // gentle wave lines
-    ctx.strokeStyle = "rgba(255,255,255,0.07)";
-    ctx.lineWidth = 2;
-    for (let row = -1; row < H / 46 + 1; row++) {
-      const y0 = ((row * 46 + scroll) % (H + 46)) - 23;
+    const time = performance.now() / 1000;
+
+    // broad, soft swells
+    for (let row = -1; row < H / 120 + 1; row++) {
+      const y0 = ((row * 120 + scroll * 0.6) % (H + 120)) - 60;
+      ctx.fillStyle = "rgba(255,255,255,0.035)";
       ctx.beginPath();
-      for (let x = 0; x <= W; x += 12) {
-        const y = y0 + Math.sin(x / 38 + row * 1.7 + scroll / 60) * 4;
-        if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-      }
-      ctx.stroke();
-    }
-    // foam flecks
-    for (const f of foam) {
-      const y = (f.y + scroll * 1.2) % H;
-      ctx.fillStyle = `rgba(255,255,255,${f.a})`;
-      ctx.beginPath();
-      ctx.ellipse(f.x, y, f.r * 2, f.r, 0, 0, Math.PI * 2);
+      ctx.moveTo(0, y0);
+      for (let x = 0; x <= W; x += 16) ctx.lineTo(x, y0 + Math.sin(x / 70 + row) * 10);
+      ctx.lineTo(W, y0 + 40);
+      for (let x = W; x >= 0; x -= 16) ctx.lineTo(x, y0 + 40 + Math.sin(x / 70 + row + 1) * 10);
+      ctx.closePath();
       ctx.fill();
     }
+
+    // wave crests: a bright edge with a soft shadow just below
+    ctx.lineCap = "round";
+    for (const c of crests) {
+      const y = (c.y + scroll) % H;
+      const x = c.x + Math.sin(time * 0.8 + c.phase) * 3;
+      ctx.strokeStyle = "rgba(10,60,90,0.18)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x - c.len / 2, y + 2);
+      ctx.quadraticCurveTo(x, y - 3, x + c.len / 2, y + 2);
+      ctx.stroke();
+      ctx.strokeStyle = `rgba(255,255,255,${c.a})`;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(x - c.len / 2, y);
+      ctx.quadraticCurveTo(x, y - 5, x + c.len / 2, y);
+      ctx.stroke();
+    }
+
+    // sunlight glints
+    for (const s of sparkles) {
+      const a = Math.max(0, Math.sin(time * 2 + s.phase)) * 0.7;
+      if (a < 0.05) continue;
+      ctx.fillStyle = `rgba(255,255,255,${a})`;
+      ctx.fillRect(s.x, (s.y + scroll) % H, 2, 2);
+    }
+    ctx.lineCap = "butt";
   }
 
+  // Minimal wake: two thin lines opening into a wide, short V, and a faint wash in the middle
   function drawWake() {
-    for (const p of g.wake) {
-      const k = p.age / 1.4;
-      if (p.swirl) {
-        ctx.strokeStyle = `rgba(255,255,255,${0.4 * (1 - k)})`;
-        ctx.lineWidth = 1.5;
+    const pts = g.wake;
+    if (pts.length < 2) return;
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1], b = pts[i];
+      const ka = a.age / WAKE_LIFE, k = b.age / WAKE_LIFE;
+      // centre wash
+      ctx.strokeStyle = `rgba(255,255,255,${0.25 * (1 - k)})`;
+      ctx.lineWidth = 6 + k * 14;
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+      // spreading edges
+      ctx.strokeStyle = `rgba(255,255,255,${0.55 * (1 - k)})`;
+      ctx.lineWidth = 1.4;
+      for (const side of [-1, 1]) {
+        const sa = 8 + ka * WAKE_SPREAD, sb = 8 + k * WAKE_SPREAD;
         ctx.beginPath();
-        ctx.arc(p.x, p.y, 3 + k * 7, p.turn + k * 4, p.turn + k * 4 + Math.PI * 1.3);
+        ctx.moveTo(a.x + side * sa, a.y);
+        ctx.lineTo(b.x + side * sb, b.y);
         ctx.stroke();
-      } else {
-        ctx.fillStyle = `rgba(255,255,255,${0.42 * (1 - k)})`;
-        ctx.beginPath();
-        ctx.ellipse(p.x, p.y, 2.5 + k * 5, 2 + k * 3, 0, 0, Math.PI * 2);
-        ctx.fill();
       }
     }
   }
 
-  // Warship seen from above, bow pointing up
+  // Minimal flat ship seen from above: one soft cream hull, a dark bridge block
   function drawShip(x, y, flashing, t) {
     if (flashing && Math.floor(t * 10) % 2 === 0) ctx.globalAlpha = 0.35;
-    const w = SHIP.w, h = SHIP.h, cx = x + w / 2;
-    // bow wave
-    ctx.strokeStyle = "rgba(255,255,255,0.55)";
-    ctx.lineWidth = 2;
+    const w = SHIP.w, h = SHIP.h, cx = x + w / 2, bow = 0.26;
+    // smooth hull: pointed bow, straight sides, gently rounded stern
+    const hull = new Path2D();
+    hull.moveTo(cx, y);
+    hull.bezierCurveTo(x + w * 0.78, y + h * bow * 0.25, x + w, y + h * bow * 0.6, x + w, y + h * bow);
+    hull.lineTo(x + w, y + h - w * 0.35);
+    hull.quadraticCurveTo(x + w, y + h, cx, y + h);
+    hull.quadraticCurveTo(x, y + h, x, y + h - w * 0.35);
+    hull.lineTo(x, y + h * bow);
+    hull.bezierCurveTo(x, y + h * bow * 0.6, x + w * 0.22, y + h * bow * 0.25, cx, y);
+    hull.closePath();
+    // soft shadow on the water
+    ctx.save();
+    ctx.translate(3, 5);
+    ctx.fillStyle = "rgba(0,30,50,0.28)";
+    ctx.fill(hull);
+    ctx.restore();
+    // cream hull with a gentle shade down one side
+    ctx.fillStyle = "#f3efe7";
+    ctx.fill(hull);
+    ctx.save();
+    ctx.clip(hull);
+    ctx.fillStyle = "rgba(30,50,70,0.12)";
+    ctx.fillRect(x + w * 0.62, y, w, h);
+    ctx.restore();
+    // three faint hatch lines
+    ctx.strokeStyle = "rgba(38,50,63,0.35)";
+    ctx.lineWidth = 1;
+    for (const f of [0.3, 0.45, 0.6]) {
+      ctx.beginPath();
+      ctx.moveTo(x + 6, y + h * f);
+      ctx.lineTo(x + w - 6, y + h * f);
+      ctx.stroke();
+    }
+    // bridge block
+    ctx.fillStyle = "#26323f";
     ctx.beginPath();
-    ctx.moveTo(cx - 10, y + 14); ctx.quadraticCurveTo(cx - 2, y - 2, cx, y - 4);
-    ctx.quadraticCurveTo(cx + 2, y - 2, cx + 10, y + 14);
-    ctx.stroke();
-    // hull
-    ctx.fillStyle = "#6f7c8c";
-    ctx.beginPath();
-    ctx.moveTo(cx, y);
-    ctx.quadraticCurveTo(x + w, y + h * 0.18, x + w, y + h * 0.4);
-    ctx.lineTo(x + w, y + h * 0.9);
-    ctx.lineTo(x + w * 0.85, y + h);
-    ctx.lineTo(x + w * 0.15, y + h);
-    ctx.lineTo(x, y + h * 0.9);
-    ctx.lineTo(x, y + h * 0.4);
-    ctx.quadraticCurveTo(x, y + h * 0.18, cx, y);
-    ctx.closePath();
+    ctx.roundRect(x + 5, y + h * 0.74, w - 10, 12, 3);
     ctx.fill();
-    // deck
-    ctx.fillStyle = "#9aa6b5";
-    ctx.beginPath();
-    ctx.moveTo(cx, y + 6);
-    ctx.quadraticCurveTo(x + w - 5, y + h * 0.2, x + w - 5, y + h * 0.42);
-    ctx.lineTo(x + w - 5, y + h - 6);
-    ctx.lineTo(x + 5, y + h - 6);
-    ctx.lineTo(x + 5, y + h * 0.42);
-    ctx.quadraticCurveTo(x + 5, y + h * 0.2, cx, y + 6);
-    ctx.fill();
-    // forward gun
-    ctx.fillStyle = "#4b5563";
-    ctx.beginPath(); ctx.arc(cx, y + h * 0.26, 6, 0, Math.PI * 2); ctx.fill();
-    ctx.fillRect(cx - 1.5, y + h * 0.1, 3, 12);
-    // bridge and mast
-    ctx.fillStyle = "#e5e9ef";
-    ctx.fillRect(cx - 9, y + h * 0.38, 18, 16);
-    ctx.fillStyle = "#3b82b8";
-    ctx.fillRect(cx - 7, y + h * 0.38 + 2, 14, 3);
-    ctx.fillStyle = "#4b5563";
-    ctx.fillRect(cx - 5, y + h * 0.6, 10, 8);                 // funnel
-    // helipad
-    ctx.strokeStyle = "#e5e9ef";
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(cx - 8, y + h - 20, 16, 12);
     ctx.globalAlpha = 1;
   }
 
@@ -739,10 +641,19 @@
     ctx.restore();
   }
 
+  // Draw an object bigger or smaller around its own centre
+  function drawScaled(o, scale, fn) {
+    ctx.save();
+    ctx.translate(o.cx, o.cy);
+    ctx.scale(scale, scale);
+    fn({ ...o, cx: 0, cy: 0 });
+    ctx.restore();
+  }
+
   function drawObjects(t) {
     for (const w of g.waves) for (const o of w.objects) {
-      if (o.type === "D") drawDrone(o);
-      else if (o.type === "P") drawPlane(o);
+      if (o.type === "D") drawScaled(o, 1.1, drawDrone);
+      else if (o.type === "P") drawScaled(o, 0.9, drawPlane);
       else if (o.type === "M") drawMissile(o, t);
       else drawShoe(o);
     }
@@ -766,21 +677,22 @@
     }
     ctx.textAlign = "right";
     ctx.fillStyle = "#9fc3d6";
-    ctx.fillText(`LEVEL ${g.level + 1}/${LEVELS.length}`, W - 14, 29);
+    ctx.fillText(`TOP ${Math.max(topScore, g.score)}`, W - 14, 29);
 
-    if (state === "playing" && g.bannerTimer > 0) {
-      const a = Math.min(1, g.bannerTimer * 1.5);
-      ctx.textAlign = "center";
+    ctx.textAlign = "center";
+    if (state === "playing" && g.introTimer > 0) {
+      const a = Math.min(1, g.introTimer * 1.5);
       ctx.fillStyle = `rgba(255,209,102,${a})`;
-      ctx.font = "bold 30px system-ui, sans-serif";
-      ctx.fillText(`Level ${g.level + 1}`, W / 2, 160);
+      ctx.font = "bold 28px system-ui, sans-serif";
+      ctx.fillText("How far can you go?", W / 2, 165);
       ctx.fillStyle = `rgba(234,246,255,${a})`;
-      ctx.font = "20px system-ui, sans-serif";
-      ctx.fillText(LEVELS[g.level].name, W / 2, 190);
-      if (g.level === 0) {
-        ctx.font = "15px system-ui, sans-serif";
-        ctx.fillText("Arrow keys to steer · touch to move on a phone", W / 2, 220);
-      }
+      ctx.font = "15px system-ui, sans-serif";
+      ctx.fillText("Arrow keys to steer · touch to move on a phone", W / 2, 195);
+    }
+    if (g.fasterTimer > 0) {
+      ctx.fillStyle = `rgba(255,209,102,${Math.min(1, g.fasterTimer * 2)})`;
+      ctx.font = "bold 34px system-ui, sans-serif";
+      ctx.fillText("Faster!", W / 2, 110);
     }
   }
 
@@ -806,8 +718,6 @@
     drawObjects(t);
     drawHud();
     if (state === "paused") drawBanner("Paused", "Tap or press Space to continue");
-    if (state === "levelclear") drawBanner(`Level ${g.level + 1} cleared!`, `Next: ${LEVELS[g.level + 1].name}`);
-    if (state === "won") drawBanner("All levels cleared!", "Score: " + g.score);
     if (state === "sunk") drawBanner("Sunk!", "Score: " + g.score);
   }
 
@@ -892,18 +802,15 @@
     get state() { return state; },
     get score() { return g ? g.score : 0; },
     get hull() { return g ? g.hull : SETTINGS.hull; },
-    get level() { return g ? g.level : 0; },
     get speed() { return g ? g.speed : 0; },
     get x() { return g ? g.x : 0; },
     get y() { return g ? g.y : 0; },
-    get nextWave() { return g ? g.nextWave : 0; },
+    get waveCount() { return g ? g.waveCount : 0; },
     get waves() {
-      return g ? g.waves.map(w => ({ index: w.index, passed: w.passed, objects: w.objects.map(o => ({ type: o.type, cx: o.cx, cy: o.cy })) })) : [];
+      return g ? g.waves.map(w => ({ index: w.index, safe: w.safe, passed: w.passed, objects: w.objects.map(o => ({ type: o.type, cx: o.cx, cy: o.cy })) })) : [];
     },
     get lastScore() { return lastScore; },
     get topScore() { return topScore; },
-    levelChecks: LEVEL_CHECKS,
-    levels: LEVELS,
     lane: LANE, ship: SHIP
   };
 

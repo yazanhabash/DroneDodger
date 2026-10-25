@@ -1,91 +1,69 @@
 # Game rules: Drone Dodger
 
-**Version:** rules v5, 2026-10-20 (matches brief v6: sea, 4-way movement, 3-hit hull, preset levels)
+**Version:** rules v6, 2026-10-24 (matches brief v7 / game version 1.1: endless mode)
 
 ## Goal (one sentence)
 
-Steer your warship through every wave of all three levels before your hull takes its third hit.
+Steer your ship through endless, ever-faster waves for as long as you can, and beat your top score before the third hit sinks you.
 
 ## How to play (shown on the start screen)
 
 1. Press **New game**.
 2. Steer with the **arrow keys**. On a phone, touch and hold where you want to go.
 3. Slip through the gaps. Each wave you pass is worth 1 point.
-4. Your hull takes 2 hits. The 3rd sinks you. Clear every level to win.
+4. Your hull takes 2 hits. The 3rd sinks you.
 
 ## What the player can do
 
 | Action | Laptop | Phone/tablet | Effect |
 | --- | --- | --- | --- |
-| Steer | Hold ↑ ↓ ← → (or W A S D); two keys move diagonally | Touch and hold a spot | Moves at a steady speed toward that direction or spot |
+| Steer | Hold ↑ ↓ ← → (or W A S D); two keys move diagonally | Touch and hold a spot | Moves at a steady speed |
 | Nothing held | — | — | The ship stays where it is |
-| New game | Button, Enter or Space | Tap the button | Starts at level 1 |
+| New game | Button, Enter or Space | Tap the button | Starts a fresh round |
 | Resume after a pause | Space, an arrow key, or click | Tap | Continues from where it stopped |
 
-## Level design (how levels are written)
+## Waves
 
-Levels live at the top of `index.html`, under the heading **LEVELS — edit these to design the game**.
+- The sea is split into 6 lanes. A new wave arrives every 280 pixels of travel.
+- Each wave has an **open lane** that is at most 2 lanes from the previous wave's open lane, and every lane in between is also kept empty. This guarantees a reachable route.
+- Other lanes are filled at random. Waves are about 45% full at the start and 85% full from 60 points onward.
+- Object mix: drones and shoes from the start, airplanes (two lanes wide) from 10 points, missiles from 25 points.
 
-```
-{
-  name: "Calm Waters",
-  speed: 140,      // bigger = faster
-  spacing: 300,    // distance between waves; bigger = more reaction time
-  waves: [
-    "D....D",
-    ".D..D.",
-    "......",      // a breather row
-    ...
-  ]
-}
-```
+## Speed
 
-Each wave is exactly 6 characters, one per lane from left to right:
-
-| Letter | Meaning |
-| --- | --- |
-| `D` | Drone (1×) |
-| `S` | Shoe (1×) |
-| `PP` | Airplane, always two letters side by side (1.5×) |
-| `M` | Missile (2×) |
-| `.` | Open water |
-
-**Way-out rule (checked automatically):** you must be able to get from an open lane in one wave to an open lane in the next. The lanes you cross must be open in the next wave, and the ship must have time to cross them. The checker prints any wave that breaks this rule in the browser console.
+- Starts at 140. Every 10 points it rises 8%, and "Faster!" shows for a second.
+- The top speed is 280, reached at 90 points. After that, the waves stay crowded but don't get faster.
+- Drones and shoes move at 1× this speed, airplanes at 1.5× and missiles at 2×. Each wave is timed to reach the ship's starting row together.
 
 ## Collisions and hull
 
 - A hit happens when the ship's body overlaps an object. Hit boxes are slightly smaller than the drawings.
-- Each hit takes 1 hull point and makes the ship flash for 1.5 seconds. While it flashes, it can't be hit again.
-- The **third hit** sinks the ship and ends the game.
-- The sea edges and the score bar stop the ship and never cause damage.
+- Each hit takes 1 of 3 hull points and makes the ship flash for 1.5 seconds. It can't be hit while flashing.
+- The third hit sinks the ship.
+- The sea edges and the score bar stop the ship without damage.
 
 ## Score
 
-- +1 when every object in a wave is below the ship, once per wave. Breather rows don't score.
-- The maximum score with the current three levels is 50.
++1 when every object in a wave is below the ship, once per wave. There is no limit.
 
 ## Screens (states)
 
 | State | What you see | Moving? |
 | --- | --- | --- |
-| **Start screen** | Instructions, last score, top score, New game | No |
-| **Playing** | Ship, wake, waves, score, hull (3 boxes), level number. The level name shows for 2 seconds at the start | Yes |
+| **Start screen** | "Version 1.1", instructions, last score, top score, New game | No |
+| **Playing** | Ship, wake, waves, score, hull (3 boxes), TOP score. "How far can you go?" shows for the first 2.5 seconds | Yes |
 | **Paused** (tab or window switched) | "Paused. Tap or press Space to continue." | No |
-| **Level cleared** (about 2 seconds) | "Level N cleared!" and the next level's name | Sea only |
-| **Sunk** / **All levels cleared** (about 1 second) | Banner and score | Sea only |
+| **Sunk** (about 1 second) | "Sunk!" and the score | Sea only |
 
 ## Transition table
 
 | From | Event | Result |
 | --- | --- | --- |
-| Start screen | New game | Level 1. Score 0, hull 3, ship centred near the bottom |
-| Playing | Steer | Ship moves; stops when released |
-| Playing | A wave passes the ship | +1 |
+| Start screen | New game | Score 0, hull 3, starting speed, ship centred near the bottom |
+| Playing | A wave passes the ship | +1; at every 10 points, faster (until the top speed) |
 | Playing | Hit, hull above 1, not flashing | Hull −1, flashing, play continues |
 | Playing | Hit, hull 1, not flashing | Sunk |
-| Playing | Last wave of a level has left the screen | Level cleared, or All levels cleared after level 3 |
-| Level cleared | After about 2 seconds | Next level starts. Score, hull and position carry over |
-| Sunk / All cleared | After about 1 second | Start screen. Last and top scores are updated and saved |
+| Sunk | After about 1 second | Start screen. Last and top scores are updated and saved |
 | Playing | Tab or window switched | Paused |
 | Paused | Space, arrow key or tap | Playing |
 
@@ -93,21 +71,21 @@ Each wave is exactly 6 characters, one per lane from left to right:
 
 | Kept between games | Reset each new game |
 | --- | --- |
-| Last score, top score | Level, score, hull, ship position, waves, flashing, wake |
+| Last score, top score | Score, hull, speed, crowding, ship position, waves, wake |
 
 ## Partner test cases
 
 Record Passed, Failed, or Not tested.
 
-1. Start screen shows the last and top scores. Does New game start *Calm Waters*, with 3 green hull boxes?
-2. Do all four arrow keys move the ship, and does letting go stop it? Do two keys together move it diagonally?
-3. Does the ship stop at every edge and at the score bar without damage?
-4. After the first wave passes, is the score exactly 1?
-5. Get hit once and then twice. Does the hull drop each time, with flashing and play continuing?
-6. Does the third hit show "Sunk!" and then the start screen with your score?
-7. Clear level 1. Does "Level 1 cleared!" show, followed by *Air Patrol*?
-8. Is there always a reachable opening in every level?
-9. Clear all three levels. Does "All levels cleared!" show, and does the start screen say "You cleared all 3 levels!"?
-10. Switch tabs mid-level and come back. Is it paused, and does it resume safely?
-11. Play three games in a row. Does each start fresh at level 1?
-12. On a phone: does the ship head toward your finger and stop when you let go?
+1. Does the start screen show "Version 1.1" and the last and top scores?
+2. Do all four arrow keys move the ship, and does letting go stop it?
+3. Does the ship stop at the edges and at the score bar without damage?
+4. After the first wave, is the score exactly 1?
+5. At 10 points, does "Faster!" appear? Do planes start appearing after 10, and missiles after 25?
+6. Does the hull drop with each hit, and does the third hit show "Sunk!"?
+7. Is there always a reachable opening, even after 50+ points?
+8. Does the game keep going with no end screen as long as you survive?
+9. Does the TOP score in the corner match your best?
+10. Switch tabs and come back. Is it paused, and does it resume safely?
+11. Play three games in a row. Does each start fresh and slow?
+12. On a phone: does the ship head toward your finger?
